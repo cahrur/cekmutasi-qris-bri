@@ -108,13 +108,7 @@ class QRISMutationScraper(LoggerMixin):
             return True
         
         async with WebhookClient() as client:
-            # Test webhook connectivity first
-            webhook_ok = await client.test_webhook()
-            if not webhook_ok:
-                self.log_error("Webhook test failed, skipping mutation sending")
-                return False
-            
-            # Send mutations
+            # Send mutations directly (no test)
             results = await client.post_mutations_batch(mutations)
             
             # Mark successful ones as sent

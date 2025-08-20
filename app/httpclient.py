@@ -58,7 +58,7 @@ class WebhookClient(LoggerMixin):
         """
         import asyncio
         
-        for attempt in range(3):  # Retry up to 3 times
+        for attempt in range(1):  # Single attempt only (no retry for webhook)
             try:
                 payload = mutation.to_webhook_payload()
                 
@@ -93,15 +93,13 @@ class WebhookClient(LoggerMixin):
                                   status_code=e.response.status_code,
                                   response_text=e.response.text if hasattr(e.response, 'text') else 'N/A',
                                   attempt=attempt + 1)
-                    if attempt == 2:  # Last attempt
-                        return False
+                    return False  # No retry
                 elif httpx and isinstance(e, httpx.RequestError):
                     self.log_error("Request error posting mutation", 
                                   error=e, 
                                   id_ext=mutation.id_ext,
                                   attempt=attempt + 1)
-                    if attempt == 2:  # Last attempt
-                        return False
+                    return False  # No retry
                 else:
                     self.log_error("Unexpected error posting mutation", 
                                   error=e, 
@@ -109,10 +107,7 @@ class WebhookClient(LoggerMixin):
                                   attempt=attempt + 1)
                     return False
                 
-                # Wait before retry (exponential backoff)
-                if attempt < 2:
-                    wait_time = (2 ** attempt) + 1  # 1s, 3s
-                    await asyncio.sleep(wait_time)
+                # No retry logic needed anymore
         
         return False
     
