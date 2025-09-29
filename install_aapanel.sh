@@ -310,9 +310,9 @@ EMAIL=your_email@example.com
 PASSWORD=your_password
 
 # URLs
-BASE_URL=https://report.orderkuota.com
-LOGIN_URL=https://report.orderkuota.com/auth/login
-MUTASI_URL=https://report.orderkuota.com/mutasi_qris
+BASE_URL=https://brimerchant.bri.co.id
+LOGIN_URL=https://brimerchant.bri.co.id/auth/login
+MUTASI_URL=https://brimerchant.bri.co.id/transaksi/daftar-transaksi/ganti-url-valid-anda
 
 # Webhook
 WEBHOOK_URL=http://your-webhook-url.com/callback

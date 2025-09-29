@@ -1,6 +1,6 @@
 # 🔥 QRIS Mutation Scraper - Auto Checker
 
-Aplikasi Python untuk **auto checking mutasi QRIS** dari report.orderkuota.com secara otomatis. Scraper ini menggunakan Playwright untuk automasi browser dan mengirim data mutasi ke webhook Anda.
+Aplikasi Python untuk **auto checking mutasi QRIS** dari QRIS BRI secara otomatis. Scraper ini menggunakan Playwright untuk automasi browser dan mengirim data mutasi ke webhook Anda.
 
 ## 🎯 Fitur Utama
 
@@ -24,7 +24,7 @@ ssh root@your-server-ip
 cd /www/wwwroot/your-domain.com
 
 # 3. Upload files atau git clone
-git clone https://github.com/cahrur/cekmutasi-qris-orderkuota.git .
+git clone https://github.com/cahrur/cekmutasi-qris-bri.git .
 
 # 4. Auto install (satu command!)
 chmod +x install_aapanel.sh
@@ -58,7 +58,7 @@ Edit file `.env`:
 
 ```env
 # Kredensial Login (WAJIB DIISI)
-EMAIL=your_email@gmail.com
+LOGIN_PHONE=your_phone
 PASSWORD=your_password
 
 # Webhook URL (GANTI DENGAN URL ANDA)
@@ -143,7 +143,7 @@ ps aux | grep python | grep qris
 ### **Login Gagal**
 ```bash
 # Check kredensial di .env
-cat .env | grep EMAIL
+cat .env | grep LOGIN_PHONE
 cat .env | grep PASSWORD
 
 # Test manual login

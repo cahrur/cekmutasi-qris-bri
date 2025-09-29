@@ -23,7 +23,7 @@ cd /www/wwwroot/your-domain.com
 
 # 3. Upload project files atau clone repository
 # Option A: Upload via AAPanel File Manager
-# Option B: git clone https://github.com/cahrur/cekmutasi-qris-orderkuota.git .
+# Option B: git clone https://github.com/cahrur/cekmutasi-qris-bri.git .
 
 # 4. Jalankan auto installer (otomatis baca .env untuk cron interval)
 chmod +x install_aapanel.sh
@@ -31,7 +31,7 @@ chmod +x install_aapanel.sh
 
 # 5. Edit konfigurasi WAJIB
 nano .env
-# Update: EMAIL, PASSWORD, WEBHOOK_URL, CRON_INTERVAL_MINUTES
+# Update: LOGIN_PHONE, PASSWORD, WEBHOOK_URL, CRON_INTERVAL_MINUTES
 
 # 6. Test installation
 ./test_scraper.sh
@@ -103,13 +103,13 @@ Struktur direktori harus seperti ini:
 Edit file `.env`:
 ```env
 # Login credentials (WAJIB DIISI)
-EMAIL=your_email@gmail.com
+LOGIN_PHONE=your_phone
 PASSWORD=your_password
 
-# URLs (JANGAN DIUBAH)
-BASE_URL=https://report.orderkuota.com
-LOGIN_URL=https://report.orderkuota.com/auth/login
-MUTASI_URL=https://report.orderkuota.com/mutasi_qris
+# URLs (Sesuaikan)
+BASE_URL=https://brimerchant.bri.co.id
+LOGIN_URL=https://brimerchant.bri.co.id/auth/login
+MUTASI_URL=https://brimerchant.bri.co.id/transaksi/daftar-transaksi/ganti-url-valid-anda
 
 # Webhook URL (GANTI DENGAN URL ANDA)
 WEBHOOK_URL=http://your-domain.com/webhook/callback

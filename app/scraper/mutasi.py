@@ -1,7 +1,7 @@
 """
 Mutation data scraper for QRIS transactions
 """
-from typing import List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 from ..models import Mutasi
 from ..parser import IndonesianParser
 from ..config import config
@@ -25,10 +25,12 @@ class MutasiScraper(LoggerMixin):
         Returns list of Mutasi objects
         """
         try:
-            self.log_info("Starting mutation scraping", url=config.MUTASI_URL)
+            url = config.build_mutasi_url()
+            self.log_info("Starting mutation scraping", url=url)
             
             # Navigate to mutation page
-            await page.goto(config.MUTASI_URL, wait_until='domcontentloaded')
+            self.log_debug("Navigating to mutation page", url=url)
+            await page.goto(url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)  # Wait for page to settle
             
             all_mutations = []
@@ -37,10 +39,10 @@ class MutasiScraper(LoggerMixin):
             while page_count < self.max_pages:
                 page_count += 1
                 self.log_info(f"Scraping page {page_count}")
-                
-                # Wait for table to load
-                await self._wait_for_table(page)
-                
+
+                # Wait for transaction elements to load
+                await self._wait_for_transactions(page)
+
                 # Scrape current page
                 mutations = await self._scrape_current_page(page)
                 if mutations:
@@ -109,47 +111,109 @@ class MutasiScraper(LoggerMixin):
         
         if not table_found:
             raise Exception("No mutation table found on page")
-    
+
+    async def _wait_for_transactions(self, page: 'Page', timeout: int = 10000):
+        """Wait for mutation data (table or cards) to be present"""
+        selectors = [
+            'table#mutasi',
+            'table.table',
+            'table.mutation-table',
+            '.table-responsive table',
+            'table:has(thead):has(tbody)',
+            '.flex.text-xs.mb-3.justify-between.bg-white.items-center.border.rounded-xl.py-3.px-4'
+        ]
+
+        for selector in selectors:
+            try:
+                element = page.locator(selector).first
+                await element.wait_for(state='visible', timeout=timeout)
+                self.log_debug("Transaction elements found", selector=selector)
+                return
+            except Exception:
+                continue
+
+        # Additional wait for dynamic data
+        await page.wait_for_timeout(3000)
+        for selector in selectors:
+            try:
+                element = page.locator(selector).first
+                if await element.is_visible():
+                    self.log_debug("Transaction elements found after delay", selector=selector)
+                    return
+            except Exception:
+                continue
+
+        raise Exception("No transaction data found on page")
+
     async def _scrape_current_page(self, page: 'Page') -> List[Mutasi]:
         """Scrape mutations from current page"""
         try:
-            # Find the table
-            table = await self._find_table(page)
-            if not table:
+            # Find the table or fallback structure
+            table, header_texts = await self._find_table(page)
+            if table:
+                mutations = await self._scrape_table_rows(table, header_texts)
+                if mutations:
+                    return mutations
+
+            # Fallback: handle card-based transaction list (e.g., BRI Merchant)
+            card_selector = '.flex.text-xs.mb-3.justify-between.bg-white.items-center.border.rounded-xl.py-3.px-4'
+            card_elements = page.locator(card_selector)
+            card_count = await card_elements.count()
+
+            if card_count == 0:
+                self.log_warning("No mutation table or cards found on page")
                 return []
-            
-            # Validate table headers
-            if not await self._validate_table_headers(table):
-                self.log_warning("Table headers don't match expected mutation format")
-                # Continue anyway, might still work
-            
-            # Get all data rows (skip header)
-            rows = table.locator('tbody tr')
-            row_count = await rows.count()
-            
-            if row_count == 0:
-                self.log_info("No data rows found in table")
-                return []
-            
+
+            self.log_info("Falling back to card-based mutation parsing", cards=card_count)
+
             mutations = []
-            for i in range(row_count):
+            for index in range(card_count):
+                card = card_elements.nth(index)
                 try:
-                    row = rows.nth(i)
-                    mutation = await self._parse_table_row(row)
+                    mutation = await self._parse_card(card)
                     if mutation:
                         mutations.append(mutation)
-                except Exception as e:
-                    self.log_warning(f"Error parsing row {i}", error=str(e))
+                except Exception as exc:
+                    self.log_warning("Failed to parse transaction card", index=index, error=str(exc))
                     continue
-            
+
             return mutations
-            
+
         except Exception as e:
             self.log_error("Error scraping current page", error=e)
             return []
+
+    async def _scrape_table_rows(self, table: 'Locator', header_texts: List[str]) -> List[Mutasi]:
+        """Scrape rows from table structure"""
+        # Validate table headers
+        if not await self._validate_table_headers(table, header_texts):
+            self.log_warning("Table headers don't match expected mutation format")
+
+        rows = table.locator('tbody tr')
+        row_count = await rows.count()
+
+        if row_count == 0:
+            self.log_info("No data rows found in table")
+            return []
+
+        mutations = []
+        for i in range(row_count):
+            try:
+                row = rows.nth(i)
+                mutation = await self._parse_table_row(row, header_texts)
+                if mutation:
+                    mutations.append(mutation)
+            except Exception as e:
+                self.log_warning(f"Error parsing row {i}", error=str(e))
+                continue
+
+        return mutations
     
-    async def _find_table(self, page: 'Page') -> Optional['Locator']:
-        """Find the mutation table with flexible selectors"""
+    async def _find_table(self, page: 'Page') -> Tuple[Optional['Locator'], List[str]]:
+        """Find the mutation table with flexible selectors
+
+        Returns a tuple of table locator (if found) and list of header texts.
+        """
         # Preferred specific selectors
         specific_selectors = [
             'table#mutasi',
@@ -163,8 +227,9 @@ class MutasiScraper(LoggerMixin):
             try:
                 table = page.locator(selector).first
                 if await table.is_visible():
-                    self.log_debug(f"Table found using specific selector: {selector}")
-                    return table
+                    header_texts = await self._extract_headers(table)
+                    self.log_debug("Table found using specific selector", selector=selector, headers=header_texts)
+                    return table, header_texts
             except:
                 continue
         
@@ -172,7 +237,8 @@ class MutasiScraper(LoggerMixin):
         tables = page.locator('table:has(thead):has(tbody)')
         table_count = await tables.count()
         
-        best_table = None
+        best_table: Optional['Locator'] = None
+        best_headers: List[str] = []
         best_score = 0
         
         for i in range(table_count):
@@ -182,16 +248,11 @@ class MutasiScraper(LoggerMixin):
                     continue
                 
                 # Get header text
-                headers = table.locator('thead th, thead td')
-                header_count = await headers.count()
+                header_texts = await self._extract_headers(table)
+                header_count = len(header_texts)
                 
                 if header_count < 3:  # Need at least 3 columns
                     continue
-                
-                header_texts = []
-                for j in range(header_count):
-                    text = await headers.nth(j).inner_text()
-                    header_texts.append(text.lower().strip())
                 
                 # Score based on mutation-related keywords
                 score = 0
@@ -208,28 +269,23 @@ class MutasiScraper(LoggerMixin):
                 if score > best_score:
                     best_score = score
                     best_table = table
+                    best_headers = header_texts
                     
             except Exception as e:
                 self.log_debug(f"Error evaluating table {i}", error=str(e))
                 continue
         
         if best_table:
-            self.log_debug(f"Best table found with score: {best_score}")
-            return best_table
+            self.log_debug("Best table found", score=best_score, headers=best_headers)
+            return best_table, best_headers
         
         self.log_warning("No suitable table found")
-        return None
+        return None, []
     
-    async def _validate_table_headers(self, table: 'Locator') -> bool:
+    async def _validate_table_headers(self, table: 'Locator', headers: Optional[List[str]] = None) -> bool:
         """Validate that table headers contain expected mutation fields"""
         try:
-            headers = table.locator('thead th, thead td')
-            header_count = await headers.count()
-            
-            header_texts = []
-            for i in range(header_count):
-                text = await headers.nth(i).inner_text()
-                header_texts.append(text.lower().strip())
+            header_texts = headers or await self._extract_headers(table)
             
             # Check for required keywords
             required_keywords = ['tanggal', 'deskripsi', 'debit', 'kredit']
@@ -252,7 +308,7 @@ class MutasiScraper(LoggerMixin):
             self.log_warning("Error validating table headers", error=str(e))
             return False
     
-    async def _parse_table_row(self, row: 'Locator') -> Optional[Mutasi]:
+    async def _parse_table_row(self, row: 'Locator', headers: Optional[List[str]] = None) -> Optional[Mutasi]:
         """Parse a single table row into Mutasi object"""
         try:
             # Get all cell values
@@ -268,11 +324,11 @@ class MutasiScraper(LoggerMixin):
                 cell_text = await cells.nth(i).inner_text()
                 raw_values.append(cell_text.strip())
             
-            # Parse fields based on orderkuota.com structure
+            # Parse fields based on BRI structure
             # The table has wrong structure - "Tanggal" column contains description
             # Real date might be elsewhere or we need to extract from other data
             
-            # For orderkuota.com, the first column is actually description, not date
+            # For BRI, the first column is actually description, not date
             # We need to find the actual date - it might be in a different format
             
             # Try to find date in any column
@@ -299,7 +355,7 @@ class MutasiScraper(LoggerMixin):
                 tanggal_str = "current_time"
                 self.log_debug("No date found, using current time", raw_values=raw_values)
             
-            # Description (for orderkuota.com it's actually in first column)
+            # Description (for BRI it's actually in first column)
             deskripsi = self.parser.normalize_text(raw_values[0] if len(raw_values) > 0 else "")
             
             # Filter out unwanted transactions (pencairan, etc)
@@ -314,12 +370,12 @@ class MutasiScraper(LoggerMixin):
             saldo_akhir = None
             no_referensi = None
             
-            # Patterns for orderkuota.com and other formats:
-            # [Tanggal, Keterangan, Nominal, Potongan, Jumlah] - orderkuota format
+            # Patterns for BRI and other formats:
+            # [Tanggal, Keterangan, Nominal, Potongan, Jumlah] - BRI format
             # [Date, Description, Debit, Credit, Balance, Reference] - standard format
             
             if cell_count >= 5:
-                # orderkuota.com format: [Keterangan, Nominal, Potongan, Jumlah, Saldo Akhir]
+                # BRI format: [Keterangan, Nominal, Potongan, Jumlah, Saldo Akhir]
                 nominal_value = self.parser.parse_number(raw_values[1]) if len(raw_values) > 1 else 0.0
                 potongan_value = self.parser.parse_number(raw_values[2]) if len(raw_values) > 2 else 0.0  
                 jumlah_value = self.parser.parse_number(raw_values[3]) if len(raw_values) > 3 else 0.0
@@ -338,7 +394,7 @@ class MutasiScraper(LoggerMixin):
                     debit = abs(jumlah_value) if jumlah_value < 0 else 0.0
                     kredit = jumlah_value if jumlah_value > 0 else 0.0
                 
-                # Use saldo_akhir column if available (column 4 in orderkuota.com)
+                # Use saldo_akhir column if available (column 4 in BRI)
                 if len(raw_values) > 4:
                     saldo_akhir = self.parser.parse_number(raw_values[4])
                     if saldo_akhir == 0.0:
@@ -380,7 +436,7 @@ class MutasiScraper(LoggerMixin):
             
             mutation = Mutasi(
                 id_ext=id_ext,
-                tgl=tanggal_parsed,
+                tgl=tanggal_str,
                 deskripsi=deskripsi,
                 nominal=nominal,
                 saldo_akhir=saldo_akhir,
@@ -476,3 +532,72 @@ class MutasiScraper(LoggerMixin):
             
         except Exception as e:
             self.log_error("Failed to save debug information", error=e)
+
+    async def _parse_card(self, card: 'Locator') -> Optional[Mutasi]:
+        """Parse transaction card layout into Mutasi"""
+        try:
+            info_container = card.locator('div.flex-1')
+            children = info_container.locator('> *')
+            child_count = await children.count()
+
+            if child_count < 3:
+                self.log_warning("Card structure unexpected", child_count=child_count)
+                return None
+
+            # Detail block containing description, masked number, and amount
+            detail_block = children.nth(1)
+            detail_items = detail_block.locator('p')
+
+            if await detail_items.count() < 3:
+                self.log_warning("Card detail block incomplete")
+                return None
+
+            description_text = await detail_items.nth(0).inner_text()
+            masked_number = await detail_items.nth(1).inner_text()
+            amount_text = await detail_items.nth(2).inner_text()
+
+            # Status block
+            status_block = children.nth(2)
+            status_text = await status_block.inner_text()
+
+            # Timestamp (last paragraph within container)
+            timestamp_element = info_container.locator('> p').last
+            timestamp_text = await timestamp_element.inner_text()
+
+            description = self.parser.normalize_text(description_text)
+            masked = self.parser.normalize_text(masked_number)
+            status = self.parser.normalize_text(status_text)
+            amount = abs(self.parser.parse_number(amount_text))
+            arah = self.parser.detect_direction(0.0, amount)
+
+            timestamp_parts = timestamp_text.split('|')
+            if len(timestamp_parts) == 2:
+                date_part = timestamp_parts[0].strip()
+                time_part = timestamp_parts[1].strip()
+                combined = f"{date_part} {time_part}"
+            else:
+                combined = timestamp_text.strip()
+
+            tanggal_parsed = self.parser.parse_date(combined)
+            if not tanggal_parsed and timestamp_parts:
+                tanggal_parsed = self.parser.parse_date(timestamp_parts[0].strip())
+
+            combined_description = self.parser.normalize_text(
+                f"{description} {masked} {status}"
+            )
+
+            mutation = Mutasi(
+                id_ext=Mutasi.create_id_ext(None, tanggal_parsed or combined, combined_description, amount, arah),
+                tgl=tanggal_parsed or combined,
+                deskripsi=combined_description,
+                nominal=amount,
+                saldo_akhir=None,
+                arah=arah,
+                no_referensi=None,
+                raw=[description_text, masked_number, amount_text, status_text, timestamp_text]
+            )
+
+            return mutation
+        except Exception as exc:
+            self.log_error("Error parsing transaction card", error=exc)
+            return None

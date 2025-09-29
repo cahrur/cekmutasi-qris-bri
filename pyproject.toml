@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "qris-mutation-scraper"
 version = "1.0.0"
-description = "Headless scraper for QRIS mutation data from orderkuota.com"
+description = "Headless scraper for QRIS mutation data from BRI"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

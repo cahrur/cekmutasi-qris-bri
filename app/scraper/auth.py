@@ -30,10 +30,10 @@ class AuthManager(LoggerMixin):
             # Handle any dialogs that might appear
             page.on("dialog", lambda dialog: dialog.accept())
             
-            # Find and fill email field
-            email_filled = await self._fill_email(page)
-            if not email_filled:
-                self.log_error("Failed to find or fill email field")
+            # Find and fill login identifier field (email/phone)
+            login_filled = await self._fill_login_identifier(page)
+            if not login_filled:
+                self.log_error("Failed to find or fill login identifier field")
                 return False
             
             # Find and fill password field
@@ -64,10 +64,27 @@ class AuthManager(LoggerMixin):
             self.log_error("Login process failed", error=e)
             return False
     
-    async def _fill_email(self, page: 'Page') -> bool:
-        """Find and fill email field with multiple selector strategies"""
-        email_selectors = [
-            # Common email selectors
+    async def _fill_login_identifier(self, page: 'Page') -> bool:
+        """Find and fill login identifier (phone/email) with multiple selector strategies"""
+        if not config.LOGIN_ID:
+            self.log_error("LOGIN_ID not configured")
+            return False
+
+        login_selectors = [
+            # Phone specific selectors
+            'input[type="tel"]',
+            'input[name="phone"]',
+            'input[name="no_handphone"]',
+            'input[name="handphone"]',
+            'input[name="nohp"]',
+            'input[id*="handphone" i]',
+            'input[id*="nohp" i]',
+            'input[placeholder*="handphone" i]',
+            'input[placeholder*="no handphone" i]',
+            'input[placeholder*="nomor hp" i]',
+            'input[placeholder*="no hp" i]',
+
+            # Generic login/email selectors
             'input[type="email"]',
             'input[name="email"]',
             'input[name="username"]',
@@ -75,49 +92,34 @@ class AuthManager(LoggerMixin):
             'input[name="login"]',
             'input[name="userid"]',
             'input[name="user_email"]',
-            
-            # ID-based selectors
             '#email',
             '#username',
             '#user',
             '#login',
             '#userid',
             '#user_email',
-            
-            # Class-based selectors
             'input.email',
             'input.username',
             'input.login',
             'input.user',
-            
-            # Placeholder-based selectors
-            'input[placeholder*="email" i]',
-            'input[placeholder*="Email" i]',
-            'input[placeholder*="username" i]',
-            'input[placeholder*="Username" i]',
-            'input[placeholder*="user" i]',
-            'input[placeholder*="login" i]',
-            
-            # Generic text inputs in login context
             'form input[type="text"]',
             '.login-form input[type="text"]',
             '.form-login input[type="text"]',
-            
-            # Fallback: first text input
             'input[type="text"]'
         ]
-        
-        for selector in email_selectors:
+
+        for selector in login_selectors:
             try:
                 element = page.locator(selector).first
-                if await element.is_visible(timeout=1000):
+                if await element.is_visible(timeout=1000) and await element.is_enabled():
                     await element.click()
-                    await element.fill(config.EMAIL)
-                    self.log_debug(f"Email filled using selector: {selector}")
+                    await element.fill(config.LOGIN_ID)
+                    self.log_debug(f"Login identifier filled using selector: {selector}")
                     return True
-            except:
+            except Exception as exc:
+                self.log_debug("Login field selector failed", selector=selector, error=str(exc))
                 continue
-        
+
         return False
     
     async def _fill_password(self, page: 'Page') -> bool:
@@ -272,36 +274,69 @@ class AuthManager(LoggerMixin):
         """Check if user is already logged in"""
         try:
             # Navigate to a protected page to test login status
-            await page.goto(config.MUTASI_URL, wait_until='domcontentloaded')
+            url = config.build_mutasi_url()
+            self.log_debug("Checking login status via mutation page", url=url)
+            await page.goto(url, wait_until='domcontentloaded')
             await page.wait_for_timeout(3000)
-            
-            # If we're redirected to login page, we're not logged in
-            if page.url.endswith('/login') or 'login' in page.url.lower():
-                self.log_info("Not logged in - redirected to login page")
+
+            current_url = page.url.lower()
+
+            # Detect login form elements (phone/password fields, submit buttons)
+            login_form_selectors = [
+                'input[type="tel"]',
+                'input[name="phone"]',
+                'input[name="no_handphone"]',
+                'input[name="handphone"]',
+                'input[name="nohp"]',
+                'input[type="password"]',
+                'button:has-text("Masuk")',
+                'button:has-text("Login")',
+                'form button[type="submit"]'
+            ]
+
+            for selector in login_form_selectors:
+                try:
+                    element = page.locator(selector).first
+                    if await element.is_visible(timeout=1000):
+                        self.log_info("Login form detected", selector=selector)
+                        return False
+                except Exception:
+                    continue
+
+            # If URL explicitly indicates login, treat as logged out
+            if current_url.endswith('/login') or 'auth/login' in current_url:
+                self.log_info("Not logged in - on login URL", url=page.url)
                 return False
-            
+
             # Check for elements that indicate we're logged in
             logged_in_indicators = [
                 'table',  # Mutation table present
                 '.table',
                 '#mutasi',
                 'tbody tr',  # Table rows present
+                'h1:has-text("Daftar Transaksi")',
+                'h2:has-text("Transaksi QRIS")',
                 'a:has-text("Logout")',
                 'button:has-text("Logout")'
             ]
-            
+
             for selector in logged_in_indicators:
                 try:
                     element = page.locator(selector).first
                     if await element.is_visible(timeout=2000):
                         self.log_info("Already logged in", indicator=selector)
                         return True
-                except:
+                except Exception:
                     continue
-            
+
+            # If no obvious login form and URL isn't login, treat as logged in to avoid re-login loops
+            if 'login' not in current_url:
+                self.log_info("Assuming logged in based on URL without login form", url=page.url)
+                return True
+
             self.log_info("Login status unclear, assuming not logged in")
             return False
-            
+
         except Exception as e:
             self.log_warning("Error checking login status", error=str(e))
             return False

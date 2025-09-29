@@ -1,4 +1,4 @@
 """
 QRIS Mutation Scraper Application
-Headless scraping using Playwright for orderkuota.com
+Headless scraping using Playwright for BRI
 """

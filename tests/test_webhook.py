@@ -113,8 +113,9 @@ async def test_webhook_client_post():
             
             assert actual_url == config.WEBHOOK_URL
             
-            # Verify payload (kembali menggunakan json)
-            payload = call_args[1]['json']
+            # Verify payload (form-data / data payload)
+            payload = call_args[1].get('data')
+            assert payload is not None
             assert payload['target'] == "mutation"
             assert payload['bank'] == "QRIS" 
             assert payload['account'] == "-"

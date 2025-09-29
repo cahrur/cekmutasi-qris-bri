@@ -57,6 +57,10 @@ class IndonesianParser(LoggerMixin):
         
         # Clean the value
         cleaned = value.strip().replace(' ', '')
+
+        # Remove common currency symbols/prefixes
+        if cleaned.lower().startswith('rp'):
+            cleaned = cleaned[2:]
         
         try:
             # Handle negative numbers
