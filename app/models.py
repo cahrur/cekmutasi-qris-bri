@@ -37,14 +37,18 @@ class Mutasi:
         try:
             from datetime import datetime
             dt = datetime.fromisoformat(self.tgl.replace('Z', '+00:00'))
+            # Format: YYYY-MM-DD (tahun-bulan-tanggal)
             date_str = dt.strftime('%Y-%m-%d')
             time_str = dt.strftime('%H:%M:%S')
-        except:
-            # Fallback if datetime parsing fails
+        except Exception as e:
+            # Fallback if datetime parsing fails (should not happen if tgl is ISO format)
             import datetime
             now = datetime.datetime.now()
             date_str = now.strftime('%Y-%m-%d')
             time_str = now.strftime('%H:%M:%S')
+            # Log warning for debugging
+            import sys
+            print(f"WARNING: Failed to parse tgl='{self.tgl}' as ISO format: {e}", file=sys.stderr)
         
         # Convert direction: CR=K (Kredit), DB=D (Debit) - sesuai dokumentasi
         transaction_type = "K" if self.arah == "CR" else "D"

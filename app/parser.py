@@ -142,30 +142,43 @@ class IndonesianParser(LoggerMixin):
                     )
                     break
             
-            # Common Indonesian date patterns
+            # Common date patterns (Indonesian and ISO formats)
             patterns = [
+                # ISO format: yyyy-mm-dd hh:mm:ss (most specific first)
+                (r'(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})\s*[|\s]\s*(\d{1,2}):(\d{2}):(\d{2})', 'iso'),
+                # ISO format: yyyy-mm-dd hh:mm
+                (r'(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})\s*[|\s]\s*(\d{1,2}):(\d{2})', 'iso'),
+                # ISO format: yyyy-mm-dd
+                (r'(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})', 'iso'),
                 # dd/mm/yyyy hh:mm:ss
-                r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})',
+                (r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})', 'dmy'),
                 # dd/mm/yyyy hh:mm
-                r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s+(\d{1,2}):(\d{2})',
+                (r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})\s+(\d{1,2}):(\d{2})', 'dmy'),
                 # dd/mm/yyyy
-                r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})',
+                (r'(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})', 'dmy'),
                 # dd mm yyyy hh:mm:ss (space separated)
-                r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})',
+                (r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})', 'dmy'),
                 # dd mm yyyy hh:mm
-                r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2})',
+                (r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})\s+(\d{1,2}):(\d{2})', 'dmy'),
                 # dd mm yyyy
-                r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})',
+                (r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})', 'dmy'),
             ]
             
             parsed_dt = None
             
             # Try custom patterns first
-            for pattern in patterns:
+            for pattern, format_type in patterns:
                 match = re.match(pattern, cleaned)
                 if match:
                     groups = match.groups()
-                    day, month, year = int(groups[0]), int(groups[1]), int(groups[2])
+                    
+                    # Parse based on format type
+                    if format_type == 'iso':
+                        # yyyy-mm-dd format
+                        year, month, day = int(groups[0]), int(groups[1]), int(groups[2])
+                    else:
+                        # dd/mm/yyyy format
+                        day, month, year = int(groups[0]), int(groups[1]), int(groups[2])
                     
                     # Default time values
                     hour = int(groups[3]) if len(groups) > 3 else 0
