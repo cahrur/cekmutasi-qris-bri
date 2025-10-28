@@ -181,6 +181,10 @@ pkill -f "python.*qris"
 
 # Restart clean
 ./run_cron_job.sh
+
+## auto clear log yang lebih 30 hari
+Tambahkan pada crontab
+0 0 * * * find /opt/cekmutasi-qris-bri/logs/ -type f -mtime +30 -delete
 ```
 
 ## 🎯 Production Tips
