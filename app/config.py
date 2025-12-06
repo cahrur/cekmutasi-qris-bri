@@ -24,7 +24,7 @@ class Config:
         
         # URLs
         self.BASE_URL = self._get_env('BASE_URL', 'https://brimerchant.bri.co.id')
-        self.LOGIN_URL = self._get_env('LOGIN_URL', f'{self.BASE_URL}/login')
+        self.LOGIN_URL = self._get_env('LOGIN_URL', f'{self.BASE_URL}/auth/login')
         self.MUTASI_URL = self._get_env('MUTASI_URL', f'{self.BASE_URL}/mutasi_qris')
         mutasi_url_lower = self.MUTASI_URL.lower()
         

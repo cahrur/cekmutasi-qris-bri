@@ -25,7 +25,10 @@ class AuthManager(LoggerMixin):
             
             # Navigate to login page
             await page.goto(config.LOGIN_URL, wait_until='domcontentloaded')
-            await page.wait_for_timeout(2000)  # Wait for page to settle
+            await page.wait_for_timeout(3000)  # Wait for page to settle
+            
+            # Save screenshot before login attempt (debug only)
+            await self._save_debug_screenshot(page, "before_login")
             
             # Handle any dialogs that might appear
             page.on("dialog", lambda dialog: dialog.accept())
@@ -34,13 +37,21 @@ class AuthManager(LoggerMixin):
             login_filled = await self._fill_login_identifier(page)
             if not login_filled:
                 self.log_error("Failed to find or fill login identifier field")
+                await self._save_debug_screenshot(page, "login_field_not_found")
                 return False
+            
+            # Small delay after filling login field
+            await page.wait_for_timeout(500)
             
             # Find and fill password field
             password_filled = await self._fill_password(page)
             if not password_filled:
                 self.log_error("Failed to find or fill password field")
+                await self._save_debug_screenshot(page, "password_field_not_found")
                 return False
+            
+            # Small delay after filling password
+            await page.wait_for_timeout(500)
             
             # Handle CSRF token if present
             await self._handle_csrf_token(page)
@@ -49,7 +60,11 @@ class AuthManager(LoggerMixin):
             submitted = await self._submit_form(page)
             if not submitted:
                 self.log_error("Failed to submit login form")
+                await self._save_debug_screenshot(page, "submit_failed")
                 return False
+            
+            # Wait for form submission to process (important for VPS latency)
+            await page.wait_for_timeout(5000)
             
             # Wait for login success
             success = await self._wait_for_login_success(page)
@@ -58,11 +73,43 @@ class AuthManager(LoggerMixin):
                 return True
             else:
                 self.log_error("Login failed - success indicators not found")
+                await self._save_debug_screenshot(page, "login_failed")
+                # Log current URL for debugging
+                self.log_error("Current URL after login attempt", url=page.url)
                 return False
                 
         except Exception as e:
             self.log_error("Login process failed", error=e)
+            try:
+                await self._save_debug_screenshot(page, "login_exception")
+            except:
+                pass
             return False
+    
+    async def _save_debug_screenshot(self, page: 'Page', name: str):
+        """Save debug screenshot and HTML (only when DEBUG_SCREENSHOTS is enabled)"""
+        import os
+        
+        # Only save screenshots if DEBUG_SCREENSHOTS is enabled
+        debug_enabled = os.getenv('DEBUG_SCREENSHOTS', 'false').lower() in ('true', '1', 'yes')
+        if not debug_enabled:
+            return
+            
+        try:
+            os.makedirs('./data', exist_ok=True)
+            
+            screenshot_path = f"./data/debug_{name}.png"
+            await page.screenshot(path=screenshot_path, full_page=True)
+            self.log_debug(f"Debug screenshot saved: {screenshot_path}")
+            
+            html_path = f"./data/debug_{name}.html"
+            html_content = await page.content()
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            self.log_debug(f"Debug HTML saved: {html_path}")
+            
+        except Exception as e:
+            self.log_warning(f"Failed to save debug screenshot: {e}")
     
     async def _fill_login_identifier(self, page: 'Page') -> bool:
         """Find and fill login identifier (phone/email) with multiple selector strategies"""
@@ -213,22 +260,28 @@ class AuthManager(LoggerMixin):
         
         return False
     
-    async def _wait_for_login_success(self, page: 'Page', timeout: int = 10000) -> bool:
+    async def _wait_for_login_success(self, page: 'Page', timeout: int = 30000) -> bool:
         """Wait for indicators of successful login"""
         try:
             # Wait for URL change (not on login page anymore)
+            # Check for both /login and /auth/login patterns
             await page.wait_for_function(
-                f'window.location.href !== "{config.LOGIN_URL}"',
+                '''() => {
+                    const url = window.location.href.toLowerCase();
+                    return !url.includes('/login') && !url.includes('/auth/login');
+                }''',
                 timeout=timeout
             )
             
             # Additional checks for success indicators
             success_indicators = [
                 # URL patterns that indicate success
-                lambda: not page.url.endswith('/login'),
+                lambda: '/login' not in page.url.lower(),
+                lambda: '/auth/login' not in page.url.lower(),
                 lambda: 'dashboard' in page.url.lower(),
                 lambda: 'home' in page.url.lower(),
                 lambda: 'mutasi' in page.url.lower(),
+                lambda: 'transaksi' in page.url.lower(),
             ]
             
             # Check if any success indicator is true
@@ -247,7 +300,10 @@ class AuthManager(LoggerMixin):
                 'button:has-text("Keluar")',
                 '.user-profile',
                 '.logout',
-                '[data-testid*="logout"]'
+                '[data-testid*="logout"]',
+                'nav',  # Navigation bar usually present when logged in
+                '.navbar',
+                '.sidebar'
             ]
             
             for selector in logged_in_selectors:
@@ -260,7 +316,8 @@ class AuthManager(LoggerMixin):
                     continue
             
             # If URL changed from login page, consider it success
-            if page.url != config.LOGIN_URL and not page.url.endswith('/login'):
+            current_url = page.url.lower()
+            if '/login' not in current_url and '/auth/login' not in current_url:
                 return True
             
             return False
@@ -268,7 +325,8 @@ class AuthManager(LoggerMixin):
         except Exception as e:
             self.log_warning("Error waiting for login success", error=str(e))
             # If URL changed, still consider it potentially successful
-            return page.url != config.LOGIN_URL
+            current_url = page.url.lower()
+            return '/login' not in current_url and '/auth/login' not in current_url
     
     async def is_logged_in(self, page: 'Page') -> bool:
         """Check if user is already logged in"""

@@ -183,6 +183,12 @@ pkill -f "python.*qris"
 ./run_cron_job.sh
 ```
 
+### **Aktifkan Debug**
+```bash
+# Edit file .env
+DEBUG_SCREENSHOTS=true
+```
+
 ## 🎯 Production Tips
 
 - ✅ **Set interval 10-15 menit** untuk balance antara update speed & resource usage

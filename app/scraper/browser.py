@@ -107,7 +107,58 @@ class BrowserManager(LoggerMixin):
                     'Accept-Encoding': 'gzip, deflate, br',
                     'Connection': 'keep-alive',
                     'Upgrade-Insecure-Requests': '1',
+                    'Cache-Control': 'max-age=0',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Sec-Fetch-User': '?1',
                 })
+                
+                # Add stealth script to bypass headless detection
+                await self.context.add_init_script("""
+                    // Override webdriver property
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined,
+                    });
+                    
+                    // Override plugins
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5],
+                    });
+                    
+                    // Override languages
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['id-ID', 'id', 'en-US', 'en'],
+                    });
+                    
+                    // Override chrome property
+                    window.chrome = {
+                        runtime: {},
+                    };
+                    
+                    // Override permissions
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: Notification.permission }) :
+                            originalQuery(parameters)
+                    );
+                    
+                    // Override hardware concurrency
+                    Object.defineProperty(navigator, 'hardwareConcurrency', {
+                        get: () => 8,
+                    });
+                    
+                    // Override device memory
+                    Object.defineProperty(navigator, 'deviceMemory', {
+                        get: () => 8,
+                    });
+                    
+                    // Override platform
+                    Object.defineProperty(navigator, 'platform', {
+                        get: () => 'Win32',
+                    });
+                """)
             
             self.log_info("Browser started successfully", 
                          headless=config.HEADLESS, 
