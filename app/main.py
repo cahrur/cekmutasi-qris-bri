@@ -3,7 +3,10 @@ Main entry point for QRIS mutation scraper
 """
 import asyncio
 import sys
-from typing import List
+from typing import List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page
 from .config import config
 from .logger import setup_logger, LoggerMixin
 from .storage.sqlite_cache import SQLiteCache
@@ -42,10 +45,8 @@ class QRISMutationScraper(LoggerMixin):
     
 
     
-    async def ensure_authenticated(self) -> bool:
+    async def ensure_authenticated(self, page: 'Page') -> bool:
         """Ensure user is authenticated, login if necessary"""
-        page = await self.browser_manager.new_page()
-        
         try:
             # Check if already logged in
             if await self.auth_manager.is_logged_in(page):
@@ -66,16 +67,17 @@ class QRISMutationScraper(LoggerMixin):
                 self.log_error("Login failed")
                 return False
                 
-        finally:
-            await page.close()
+        except Exception as e:
+            self.log_error("Authentication check failed", error=e)
+            return False
     
     async def scrape_mutations(self) -> List[Mutasi]:
         """Scrape mutations from the website"""
         page = await self.browser_manager.new_page()
         
         try:
-            # Ensure we're authenticated
-            if not await self.ensure_authenticated():
+            # Ensure we're authenticated (reuse same page)
+            if not await self.ensure_authenticated(page):
                 raise Exception("Authentication failed")
             
             # Scrape mutations
