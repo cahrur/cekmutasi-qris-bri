@@ -13,44 +13,94 @@ Aplikasi Python untuk **auto checking mutasi QRIS** dari QRIS BRI secara otomati
 - 🚀 **Production Ready** - System cron untuk stability
 - 📱 **AAPanel Compatible** - Easy deployment di shared hosting
 
-## 🛠️ Quick Installation
+## 🛠️ Instalasi di VPS Ubuntu
 
-### **AAPanel/CyberPanel (Recommended)**
+### **1. Persiapan Awal**
+
+Update sistem dan install dependensi OS:
+
 ```bash
-# 1. SSH ke server sebagai root
-ssh root@your-server-ip
-
-# 2. Masuk ke direktori website
-cd /www/wwwroot/your-domain.com
-
-# 3. Upload files atau git clone
-git clone https://github.com/cahrur/cekmutasi-qris-bri.git .
-
-# 4. Auto install (satu command!)
-chmod +x install_aapanel.sh
-./install_aapanel.sh
-
-# 5. Edit konfigurasi
-nano .env
+sudo apt update && sudo apt upgrade -y
+sudo apt install git python3 python3-pip python3-venv -y
 ```
 
-### **Manual Installation**
+### **2. Clone Repositori**
+
 ```bash
-# 1. Python virtual environment
+git clone https://github.com/cahrur/cekmutasi-qris-bri.git
+cd cekmutasi-qris-bri
+```
+
+### **3. Buat dan Aktifkan Virtual Environment**
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
 
-# 2. Install dependencies
+> Pastikan selalu jalankan `source .venv/bin/activate` setiap kali akan menjalankan script ini.
+
+### **4. Install Dependensi & Browser Playwright**
+
+```bash
 pip install -r requirements.txt
 playwright install chromium
-
-# 3. Setup configuration
-cp .env.example .env
-nano .env
-
-# 4. Test installation
-./test_scraper.sh
+playwright install-deps
 ```
+
+> `playwright install-deps` penting di VPS untuk menginstal dependensi OS yang dibutuhkan browser.
+
+### **5. Setup Konfigurasi**
+
+```bash
+cp env.example .env
+nano .env
+```
+
+Isikan kredensial Anda:
+
+| Variable | Keterangan |
+|---|---|
+| `LOGIN_PHONE` | Nomor HP akun QRIS |
+| `PASSWORD` | Password akun |
+| `WEBHOOK_URL` | URL endpoint untuk menerima data mutasi |
+| `CRON_INTERVAL_MINUTES` | Interval pengecekan (contoh: `10`) |
+
+Tekan `Ctrl + X`, lalu `Y` dan `Enter` untuk menyimpan.
+
+### **6. Uji Coba**
+
+```bash
+python -m app.main_cron once
+```
+
+### **7. Jalankan di Background (Production)**
+
+```bash
+chmod +x update_cron_interval.sh run_cron_job.sh
+./update_cron_interval.sh
+```
+
+Monitor log:
+
+```bash
+tail -f logs/cron.log
+```
+
+---
+
+### **AAPanel / CyberPanel**
+
+Jika VPS menggunakan AAPanel atau CyberPanel, tersedia bash script installer khusus:
+
+```bash
+cd /www/wwwroot/domainanda.com
+git clone https://github.com/cahrur/cekmutasi-qris-bri.git .
+chmod +x install_aapanel.sh
+./install_aapanel.sh
+```
+
+Lalu edit konfigurasi `.env` seperti langkah nomor 5 di atas.
 
 ## ⚙️ Konfigurasi
 
