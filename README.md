@@ -9,7 +9,7 @@ Aplikasi Python untuk **auto checking mutasi QRIS** dari QRIS BRI secara otomati
 - 🔗 **Webhook Integration** - Kirim data mutasi ke endpoint Anda
 - 🔐 **Credential Management** - Login otomatis dengan session persistence
 - 🧠 **Smart Deduplication** - Hindari duplikasi pengiriman data
-- 📊 **Memory Optimized** - Cocok untuk server dengan RAM 4GB
+- 📊 **Memory Optimized** - Satu run sekali jalan, tidak ada proses nganggur
 - 🚀 **Production Ready** - System cron untuk stability
 - 📱 **AAPanel Compatible** - Easy deployment di shared hosting
 
@@ -264,7 +264,7 @@ ps aux | grep python | grep qris
 ## 📋 Requirements
 
 - **Python 3.8+**
-- **RAM 4GB+** (optimized untuk low memory)
+- **RAM**: cukup untuk 1 instance Chromium (~1 GB saat scraping)
 - **Linux/Ubuntu** (tested on Ubuntu 22.04)
 - **Root access** (untuk AAPanel installation)
 
@@ -355,9 +355,14 @@ pkill -f "python.*qris"
 # Restart clean
 ./run_cron_job.sh
 
-## auto clear log yang lebih 30 hari
-Tambahkan pada crontab
-0 0 * * * find /opt/cekmutasi-qris-bri/logs/ -type f -mtime +30 -delete
+## Rotasi log
+
+`run_cron_job.sh` merotasi sendiri `logs/cron.log` saat ukurannya melewati 10 MB
+(dipindah ke `logs/cron.log.1`), jadi tidak perlu cron tambahan.
+
+> Perintah lama `find logs/ -type f -mtime +30 -delete` **tidak berguna** untuk file
+> ini: `cron.log` ditulis setiap run sehingga `mtime`-nya selalu baru dan tidak pernah
+> memenuhi syarat `-mtime +30`.
 ```
 
 ### **Aktifkan Debug**
@@ -368,11 +373,26 @@ DEBUG_SCREENSHOTS=true
 
 ## 🎯 Production Tips
 
-- ✅ **Set interval 10-15 menit** untuk balance antara update speed & resource usage
-- ✅ **Monitor logs harian**: `tail -f logs/cron.log`
-- ✅ **Setup log rotation** untuk mencegah disk penuh
+- ✅ **Monitor status**: `./status.sh`, realtime: `tail -f logs/cron.log`
 - ✅ **Backup konfigurasi** `.env` secara berkala
 - ✅ **Test webhook** sebelum production
+
+### Konsumsi resource per interval
+
+Diukur pada satu siklus scraping (memakai sesi tersimpan, tanpa login ulang):
+**110 request, ~2 MB, ~5 detik**. Satu instance Chromium memuncak di **0,5–0,9 GB RAM**.
+
+| Interval | Run/bulan | Bandwidth/bulan |
+|---|---|---|
+| 2 menit | 21.600 | ~43 GB |
+| 5 menit | 8.640 | ~17 GB |
+| 10 menit | 4.320 | ~9 GB |
+| 15 menit | 2.880 | ~6 GB |
+
+Yang perlu dijaga bukan bandwidth, melainkan **RAM**: setiap run menjalankan satu
+Chromium penuh. Karena itu `run_cron_job.sh` memakai `flock` — jika run sebelumnya
+belum selesai (misal jaringan lambat), run baru dilewati dan dicatat di log, sehingga
+tidak pernah ada dua Chromium hidup bersamaan.
 
 ## 📞 Support
 
