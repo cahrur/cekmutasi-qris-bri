@@ -46,8 +46,8 @@ sudo apt install git python3 python3-pip python3-venv -y
 ### **2. Clone Repositori**
 
 ```bash
-git clone https://github.com/cahrur/cekmutasi-qris-bri.git
-cd cekmutasi-qris-bri
+git clone https://github.com/cahrur/bot-qris-bri.git
+cd bot-qris-bri
 ```
 
 ### **3. Buat dan Aktifkan Virtual Environment**
@@ -123,7 +123,7 @@ Jika VPS menggunakan AAPanel atau CyberPanel, tersedia bash script installer khu
 
 ```bash
 cd /www/wwwroot/domainanda.com
-git clone https://github.com/cahrur/cekmutasi-qris-bri.git .
+git clone https://github.com/cahrur/bot-qris-bri.git .
 chmod +x install_aapanel.sh
 ./install_aapanel.sh
 ```

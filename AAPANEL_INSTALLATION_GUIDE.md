@@ -23,7 +23,7 @@ cd /www/wwwroot/your-domain.com
 
 # 3. Upload project files atau clone repository
 # Option A: Upload via AAPanel File Manager
-# Option B: git clone https://github.com/cahrur/cekmutasi-qris-bri.git .
+# Option B: git clone https://github.com/cahrur/bot-qris-bri.git .
 
 # 4. Jalankan auto installer (otomatis baca .env untuk cron interval)
 chmod +x install_aapanel.sh
