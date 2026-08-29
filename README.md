@@ -241,6 +241,13 @@ cat .env | grep BROWSER_CHANNEL
 # Harus: BROWSER_CHANNEL=chromium
 ```
 
+> ⚠️ **Jangan menambahkan header HTTP statis** (`Sec-Fetch-Dest`, `Sec-Fetch-Mode`,
+> `Accept`, dst.) lewat `set_extra_http_headers()` di `app/scraper/browser.py`.
+> Header itu ikut terpasang di **semua** request, sehingga file `_nuxt/*.js` terkirim
+> sebagai `Sec-Fetch-Dest: document` dan langsung ditolak WAF — gejalanya sama persis
+> dengan di atas. Sudah diverifikasi di VPS: tanpa header itu lolos, dengan header itu
+> 22 aset ditolak.
+
 Log yang benar akan menampilkan `channel=chromium`:
 
 ```

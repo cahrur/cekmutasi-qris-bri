@@ -119,19 +119,23 @@ class BrowserManager(LoggerMixin):
             
             self.context = await self.browser.new_context(**context_options)
             
-            # NOTE: do NOT set static extra HTTP headers or inject a "stealth"
-            # script here. Both were present before and got this scraper blocked by
-            # the Imperva/Incapsula WAF on datacenter IPs:
+            # NOTE: do NOT set static extra HTTP headers here.
             #
-            #  - Static Sec-Fetch-* / Accept headers are applied to EVERY request, so
-            #    each /_nuxt/*.js subresource was sent as `Sec-Fetch-Dest: document`
-            #    instead of `script`. The HTML document loaded (200) while every asset
-            #    was refused, leaving the Nuxt SPA unrendered and no login field.
-            #  - The stealth script claimed `navigator.platform = 'Win32'` on Linux and
-            #    a fake plugins array, which is a stronger bot signal than plain headless.
+            # This scraper used to call set_extra_http_headers() with fixed
+            # Sec-Fetch-Dest/Mode/Site and Accept values. Those apply to EVERY request,
+            # so each /_nuxt/*.js subresource went out as `Sec-Fetch-Dest: document`
+            # instead of `script`. The Imperva/Incapsula WAF in front of BRI Merchant
+            # refused every asset on datacenter IPs while still serving the HTML
+            # document (200), leaving the Nuxt SPA unrendered and no login field at all.
+            # Verified on the target VPS: identical config minus these headers passes,
+            # with them 22 assets are refused.
             #
-            # Chromium's own headers are consistent; leave them alone. Passing the WAF
-            # relies on the regular Chromium build (BROWSER_CHANNEL=chromium) instead.
+            # Chromium sets these headers correctly per request type; leave them alone.
+            # Passing the WAF relies on the regular Chromium build (BROWSER_CHANNEL=chromium).
+            #
+            # A "stealth" init script (faking navigator.platform/plugins) was removed at
+            # the same time. It was measured as neither helping nor hurting, and claiming
+            # Win32 while running on Linux is an inconsistency worth not shipping.
 
             self.log_info("Browser started successfully", 
                          headless=config.HEADLESS, 
@@ -152,14 +156,11 @@ class BrowserManager(LoggerMixin):
         
         page = await self.context.new_page()
         
-        # Set additional page settings with error handling
+        # These are plain (non-async) methods; awaiting them raises and silently
+        # left the timeouts at Playwright's defaults.
         try:
-            if hasattr(page, 'set_default_timeout') and callable(getattr(page, 'set_default_timeout')):
-                timeout_method = getattr(page, 'set_default_timeout')
-                await timeout_method(30000)  # 30 seconds
-            if hasattr(page, 'set_default_navigation_timeout') and callable(getattr(page, 'set_default_navigation_timeout')):
-                nav_timeout_method = getattr(page, 'set_default_navigation_timeout')
-                await nav_timeout_method(60000)  # 60 seconds
+            page.set_default_timeout(30000)  # 30 seconds
+            page.set_default_navigation_timeout(60000)  # 60 seconds
         except Exception as e:
             self.log_warning("Could not set page timeouts", error=str(e))
         
