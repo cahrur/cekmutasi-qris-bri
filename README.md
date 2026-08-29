@@ -384,15 +384,32 @@ Diukur pada satu siklus scraping (memakai sesi tersimpan, tanpa login ulang):
 
 | Interval | Run/bulan | Bandwidth/bulan |
 |---|---|---|
+| 1 menit | 43.200 | ~86 GB |
 | 2 menit | 21.600 | ~43 GB |
 | 5 menit | 8.640 | ~17 GB |
 | 10 menit | 4.320 | ~9 GB |
 | 15 menit | 2.880 | ~6 GB |
 
 Yang perlu dijaga bukan bandwidth, melainkan **RAM**: setiap run menjalankan satu
-Chromium penuh. Karena itu `run_cron_job.sh` memakai `flock` — jika run sebelumnya
-belum selesai (misal jaringan lambat), run baru dilewati dan dicatat di log, sehingga
-tidak pernah ada dua Chromium hidup bersamaan.
+Chromium penuh, jadi dua run yang tumpang tindih melipatgandakan pemakaian memori.
+
+### Proteksi run menumpuk
+
+`run_cron_job.sh` menjamin **hanya ada satu scraping pada satu waktu**, berapa pun
+interval cron-nya:
+
+1. **`flock -n`** — saat cron berdetak sementara run sebelumnya masih bekerja, tick itu
+   **dilewati**, bukan diantrekan. Run yang sedang jalan dibiarkan selesai tanpa
+   diganggu, dan di log tercatat:
+   ```
+   [2026-08-29T23:15:00] SKIP: run sebelumnya masih berjalan, tick ini dilewati
+   ```
+2. **`timeout 300`** — jika sebuah run menggantung (jaringan atau WAF bermasalah), run
+   itu dihentikan paksa setelah 5 menit dan sisa proses Chromium dibersihkan. Tanpa ini,
+   satu run yang macet akan menahan lock selamanya dan bot berhenti diam-diam.
+
+Karena itu interval sekecil **1 menit pun aman**: run normal hanya ~20 detik, dan kalau
+sedang lambat, tick berikutnya otomatis dilewati sampai run yang berjalan selesai.
 
 ## 📞 Support
 
