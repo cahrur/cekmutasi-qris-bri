@@ -11,9 +11,44 @@ if TYPE_CHECKING:
 
 class AuthManager(LoggerMixin):
     """Handles authentication flow"""
-    
+
+    # How long to wait for the client-side rendered login form to appear
+    FORM_TIMEOUT_MS = 30000
+
     def __init__(self):
         super().__init__()
+
+    async def _wait_for_any(self, page: 'Page', selectors: list, timeout: int) -> bool:
+        """Wait until any of the given selectors is visible.
+
+        Playwright's is_visible() ignores its timeout and returns immediately, so
+        selector probing must be preceded by a real wait or a slow page always fails.
+        """
+        combined = ', '.join(selectors)
+        try:
+            await page.locator(combined).first.wait_for(state='visible', timeout=timeout)
+            return True
+        except Exception as exc:
+            self.log_debug("No matching field appeared", error=str(exc))
+            return False
+
+    async def _log_page_inputs(self, page: 'Page'):
+        """Log the input fields actually present, to diagnose selector mismatches"""
+        try:
+            fields = await page.evaluate(
+                """() => Array.from(document.querySelectorAll('input, select, textarea')).map(el => ({
+                    tag: el.tagName.toLowerCase(),
+                    type: el.getAttribute('type'),
+                    name: el.getAttribute('name'),
+                    id: el.getAttribute('id'),
+                    placeholder: el.getAttribute('placeholder'),
+                }))"""
+            )
+            self.log_error("Fields found on page", url=page.url, count=len(fields), fields=fields)
+            title = await page.title()
+            self.log_error("Page title", title=title)
+        except Exception as exc:
+            self.log_warning("Could not inspect page fields", error=str(exc))
     
     async def login(self, page: 'Page') -> bool:
         """
@@ -155,10 +190,21 @@ class AuthManager(LoggerMixin):
             'input[type="text"]'
         ]
 
+        # The login form is rendered client-side, so wait for any candidate field to
+        # appear before probing selectors (is_visible() never waits on its own).
+        if not await self._wait_for_any(page, login_selectors, self.FORM_TIMEOUT_MS):
+            self.log_error(
+                "Login form did not render within timeout",
+                timeout_ms=self.FORM_TIMEOUT_MS,
+                url=page.url,
+            )
+            await self._log_page_inputs(page)
+            return False
+
         for selector in login_selectors:
             try:
                 element = page.locator(selector).first
-                if await element.is_visible(timeout=1000) and await element.is_enabled():
+                if await element.is_visible() and await element.is_enabled():
                     await element.click()
                     await element.fill(config.LOGIN_ID)
                     self.log_debug(f"Login identifier filled using selector: {selector}")
@@ -167,6 +213,7 @@ class AuthManager(LoggerMixin):
                 self.log_debug("Login field selector failed", selector=selector, error=str(exc))
                 continue
 
+        await self._log_page_inputs(page)
         return False
     
     async def _fill_password(self, page: 'Page') -> bool:
@@ -186,10 +233,19 @@ class AuthManager(LoggerMixin):
             '[data-testid*="password"]'
         ]
         
+        if not await self._wait_for_any(page, password_selectors, self.FORM_TIMEOUT_MS):
+            self.log_error(
+                "Password field did not render within timeout",
+                timeout_ms=self.FORM_TIMEOUT_MS,
+                url=page.url,
+            )
+            await self._log_page_inputs(page)
+            return False
+
         for selector in password_selectors:
             try:
                 element = page.locator(selector).first
-                if await element.is_visible(timeout=1000):
+                if await element.is_visible():
                     await element.click()
                     await element.fill(config.PASSWORD)
                     self.log_debug(f"Password filled using selector: {selector}")
@@ -197,6 +253,7 @@ class AuthManager(LoggerMixin):
             except:
                 continue
         
+        await self._log_page_inputs(page)
         return False
     
     async def _handle_csrf_token(self, page: 'Page'):
@@ -211,7 +268,7 @@ class AuthManager(LoggerMixin):
         for selector in csrf_selectors:
             try:
                 element = page.locator(selector).first
-                if await element.is_visible(timeout=1000):
+                if await element.count():
                     value = await element.get_attribute('value')
                     if value:
                         self.log_debug(f"CSRF token found: {selector}")

@@ -83,6 +83,7 @@ Isikan kredensial Anda:
 | `LOGIN_PHONE` | Nomor HP akun BRI Merchant |
 | `PASSWORD` | Password akun |
 | `MUTASI_URL` | Biarkan default `https://brimerchant.bri.co.id/transaksi` |
+| `BROWSER_CHANNEL` | Biarkan `chromium` (wajib, lihat *Troubleshooting*) |
 | `WEBHOOK_URL` | URL endpoint untuk menerima data mutasi |
 | `CRON_INTERVAL_MINUTES` | Interval pengecekan (contoh: `10`) |
 
@@ -150,6 +151,7 @@ CRON_INTERVAL_MINUTES=10  # Check setiap 10 menit
 
 # Browser Settings
 HEADLESS=true
+BROWSER_CHANNEL=chromium
 TIMEZONE=Asia/Jakarta
 ```
 
@@ -221,14 +223,35 @@ ps aux | grep python | grep qris
 
 ## 🔧 Troubleshooting
 
-### **Login Gagal**
+### **Login Gagal / `Failed to find or fill login identifier field`**
+
+Penyebab paling umum **bukan** kredensial, melainkan browser yang dipakai. BRI Merchant
+berada di belakang WAF **Imperva/Incapsula** yang memblokir *headless shell* bawaan
+Playwright: semua aset `/_nuxt/*.js` dijawab `403`, aplikasi Nuxt-nya tidak pernah
+render, dan form login tidak pernah muncul sehingga bot melaporkan field tidak ditemukan.
+
+Solusinya memakai build Chromium reguler:
+
 ```bash
-# Check kredensial di .env
+# 1. Pastikan build Chromium reguler terpasang (bukan sekadar headless shell)
+playwright install chromium
+
+# 2. Pastikan .env memakai channel chromium
+cat .env | grep BROWSER_CHANNEL
+# Harus: BROWSER_CHANNEL=chromium
+```
+
+Log yang benar akan menampilkan `channel=chromium`:
+
+```
+INFO  BrowserManager | Browser started successfully | headless=True channel=chromium ...
+```
+
+Kalau tetap gagal, baru periksa kredensial:
+
+```bash
 cat .env | grep LOGIN_PHONE
 cat .env | grep PASSWORD
-
-# Test manual login
-./test_scraper.sh
 ```
 
 ### **Mutasi Tidak Terbaca / Hanya Sebagian**

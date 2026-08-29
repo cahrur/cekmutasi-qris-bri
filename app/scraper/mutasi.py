@@ -14,6 +14,11 @@ if TYPE_CHECKING:
 class MutasiScraper(LoggerMixin):
     """Scrapes mutation data from QRIS transaction pages"""
     
+    # BRI Merchant's revamped transaction page renders a scrollable card list
+    # instead of a table.
+    REVAMP_LIST_SELECTOR = '#transaction-revamp-list'
+    REVAMP_CARD_SELECTOR = '#transaction-revamp-list .card-container'
+
     def __init__(self):
         super().__init__()
         self.parser = IndonesianParser(config.TIMEZONE)
@@ -115,6 +120,7 @@ class MutasiScraper(LoggerMixin):
     async def _wait_for_transactions(self, page: 'Page', timeout: int = 10000):
         """Wait for mutation data (table or cards) to be present"""
         selectors = [
+            self.REVAMP_CARD_SELECTOR,
             'table#mutasi',
             'table.table',
             'table.mutation-table',
@@ -123,12 +129,18 @@ class MutasiScraper(LoggerMixin):
             '.flex.text-xs.mb-3.justify-between.bg-white.items-center.border.rounded-xl.py-3.px-4'
         ]
 
+        # Wait once on all selectors combined instead of serially, so a page using
+        # the last layout in the list is not penalised by every earlier timeout.
+        try:
+            await page.locator(', '.join(selectors)).first.wait_for(state='visible', timeout=timeout)
+        except Exception:
+            pass
+
         for selector in selectors:
             try:
-                element = page.locator(selector).first
-                await element.wait_for(state='visible', timeout=timeout)
-                self.log_debug("Transaction elements found", selector=selector)
-                return
+                if await page.locator(selector).first.is_visible():
+                    self.log_debug("Transaction elements found", selector=selector)
+                    return
             except Exception:
                 continue
 
@@ -148,6 +160,11 @@ class MutasiScraper(LoggerMixin):
     async def _scrape_current_page(self, page: 'Page') -> List[Mutasi]:
         """Scrape mutations from current page"""
         try:
+            # Preferred: BRI Merchant revamped card list
+            revamp_mutations = await self._scrape_revamp_cards(page)
+            if revamp_mutations:
+                return revamp_mutations
+
             # Find the table or fallback structure
             table, header_texts = await self._find_table(page)
             if table:
@@ -541,6 +558,146 @@ class MutasiScraper(LoggerMixin):
             
         except Exception as e:
             self.log_error("Failed to save debug information", error=e)
+
+    async def _scrape_revamp_cards(self, page: 'Page') -> List[Mutasi]:
+        """Scrape the revamped BRI Merchant card list.
+
+        Each card carries the channel, reference number, time and status, while the
+        date lives in a group header above it ("Hari Ini", "Kemarin" or "29 Agu 2026").
+        """
+        try:
+            if not await page.locator(self.REVAMP_LIST_SELECTOR).count():
+                return []
+
+            items = await page.evaluate(
+                r"""() => {
+                    const list = document.querySelector('#transaction-revamp-list');
+                    if (!list) return [];
+                    const out = [];
+                    let label = '';
+                    // querySelectorAll preserves document order, so headers seen
+                    // before a card are that card's date group.
+                    list.querySelectorAll('p.bg-light-10, .card-container').forEach(el => {
+                        if (el.classList.contains('card-container')) {
+                            const texts = Array.from(el.querySelectorAll('p'))
+                                .map(p => (p.innerText || '').replace(/\s+/g, ' ').trim())
+                                .filter(Boolean);
+                            if (texts.length) out.push({ label: label, texts: texts });
+                        } else {
+                            label = (el.innerText || '').trim();
+                        }
+                    });
+                    return out;
+                }"""
+            )
+
+            if not items:
+                return []
+
+            self.log_info("Parsing revamped transaction cards", cards=len(items))
+
+            mutations = []
+            for index, item in enumerate(items):
+                try:
+                    mutation = self._parse_revamp_card(item.get('label', ''), item.get('texts', []))
+                    if mutation:
+                        mutations.append(mutation)
+                except Exception as exc:
+                    self.log_warning("Failed to parse revamp card", index=index, error=str(exc))
+                    continue
+
+            return mutations
+
+        except Exception as exc:
+            self.log_warning("Revamp card scraping failed", error=str(exc))
+            return []
+
+    def _parse_revamp_card(self, date_label: str, texts: List[str]) -> Optional[Mutasi]:
+        """Build a Mutasi from one revamped card's paragraph texts"""
+        import re
+
+        channel = texts[0] if texts else ''
+        no_referensi = None
+        time_text = ''
+        status = ''
+        amount_text = ''
+
+        for text in texts:
+            ref_match = re.search(r'No\.?\s*Ref\.?\s*([A-Za-z0-9]+)', text, re.IGNORECASE)
+            if ref_match and not no_referensi:
+                no_referensi = ref_match.group(1)
+                continue
+
+            time_match = re.search(r'(\d{1,2}:\d{2}(?::\d{2})?)', text)
+            if time_match and not time_text:
+                time_text = time_match.group(1)
+                if '|' in text:
+                    status = text.split('|', 1)[1].strip()
+                continue
+
+            if 'rp' in text.lower() and not amount_text:
+                amount_text = text
+
+        if not amount_text:
+            self.log_warning("Card has no amount, skipped", texts=texts)
+            return None
+
+        nominal = abs(self.parser.parse_number(amount_text))
+        arah = self.parser.detect_direction(0.0, nominal)
+
+        tanggal = self._resolve_card_datetime(date_label, time_text)
+
+        deskripsi = self.parser.normalize_text(
+            ' '.join(part for part in [channel, f"No. Ref {no_referensi}" if no_referensi else '', status] if part)
+        )
+
+        mutation = Mutasi(
+            id_ext=Mutasi.create_id_ext(no_referensi, tanggal, deskripsi, nominal, arah),
+            tgl=tanggal,
+            deskripsi=deskripsi,
+            nominal=nominal,
+            saldo_akhir=None,
+            arah=arah,
+            no_referensi=no_referensi,
+            raw=[date_label] + list(texts)
+        )
+
+        self.log_debug("Parsed revamp card",
+                       id_ext=mutation.id_ext,
+                       date=tanggal,
+                       amount=nominal,
+                       direction=arah)
+
+        return mutation
+
+    def _resolve_card_datetime(self, date_label: str, time_text: str) -> str:
+        """Turn a group header ("Hari Ini"/"Kemarin"/"29 Agu 2026") plus a time into ISO 8601"""
+        from datetime import datetime, timedelta
+        import pytz
+
+        tz = pytz.timezone(config.TIMEZONE)
+        now = datetime.now(tz)
+
+        label = (date_label or '').strip().lower()
+        if not label or 'hari ini' in label:
+            day = now.date()
+        elif 'kemarin' in label:
+            day = (now - timedelta(days=1)).date()
+        else:
+            parsed_label = self.parser.parse_date(date_label)
+            if parsed_label:
+                day = datetime.fromisoformat(parsed_label).date()
+            else:
+                self.log_warning("Unknown date group label, using today", label=date_label)
+                day = now.date()
+
+        if not time_text:
+            time_text = now.strftime('%H:%M:%S')
+        elif time_text.count(':') == 1:
+            time_text = f"{time_text}:00"
+
+        parsed = self.parser.parse_date(f"{day.isoformat()} {time_text}")
+        return parsed or now.isoformat()
 
     async def _parse_card(self, card: 'Locator') -> Optional[Mutasi]:
         """Parse transaction card layout into Mutasi"""

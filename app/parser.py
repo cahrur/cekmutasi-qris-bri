@@ -35,10 +35,10 @@ class IndonesianParser(LoggerMixin):
             'mei': 5,
             'juni': 6, 'jun': 6,
             'juli': 7, 'jul': 7,
-            'agustus': 8, 'ags': 8, 'aug': 8,
+            'agustus': 8, 'agu': 8, 'agt': 8, 'ags': 8, 'aug': 8,
             'september': 9, 'sep': 9,
             'oktober': 10, 'okt': 10, 'oct': 10,
-            'november': 11, 'nov': 11,
+            'november': 11, 'nov': 11, 'nop': 11,
             'desember': 12, 'des': 12, 'dec': 12
         }
     

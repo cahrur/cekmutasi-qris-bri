@@ -33,6 +33,10 @@ class Config:
         # Browser settings
         self.TIMEZONE = self._get_env('TIMEZONE', 'Asia/Jakarta')
         self.HEADLESS = self._get_bool('HEADLESS', True)
+        # Chromium build to launch. The bundled headless shell is blocked by the
+        # Imperva/Incapsula WAF in front of BRI Merchant; the regular Chromium
+        # build ('chromium') is not. Set empty to use Playwright's bundled build.
+        self.BROWSER_CHANNEL = self._get_env('BROWSER_CHANNEL', 'chromium')
         self.USER_AGENT = self._get_env(
             'USER_AGENT', 
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'

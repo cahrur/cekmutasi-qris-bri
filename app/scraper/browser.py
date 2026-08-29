@@ -77,10 +77,30 @@ class BrowserManager(LoggerMixin):
                     '--no-first-run'
                 ])
             
-            self.browser = await self.playwright.chromium.launch(
-                headless=config.HEADLESS,
-                args=launch_args
-            )
+            # BRI Merchant sits behind Imperva/Incapsula, which blocks Playwright's
+            # bundled headless shell: every /_nuxt/*.js asset comes back 403 and the
+            # Nuxt SPA never renders, so no login field ever appears. The regular
+            # Chromium build (channel='chromium') runs new-headless and passes.
+            launch_kwargs = {
+                'headless': config.HEADLESS,
+                'args': launch_args,
+            }
+            if config.BROWSER_CHANNEL:
+                launch_kwargs['channel'] = config.BROWSER_CHANNEL
+
+            try:
+                self.browser = await self.playwright.chromium.launch(**launch_kwargs)
+            except Exception as exc:
+                if not config.BROWSER_CHANNEL:
+                    raise
+                self.log_warning(
+                    "Browser channel not available, falling back to bundled Chromium. "
+                    "Run: playwright install chromium",
+                    channel=config.BROWSER_CHANNEL,
+                    error=str(exc),
+                )
+                launch_kwargs.pop('channel')
+                self.browser = await self.playwright.chromium.launch(**launch_kwargs)
             
             # Create context with proper settings
             context_options = {
@@ -162,6 +182,7 @@ class BrowserManager(LoggerMixin):
             
             self.log_info("Browser started successfully", 
                          headless=config.HEADLESS, 
+                         channel=config.BROWSER_CHANNEL or 'bundled',
                          timezone=config.TIMEZONE)
             
             return self.context
