@@ -119,67 +119,20 @@ class BrowserManager(LoggerMixin):
             
             self.context = await self.browser.new_context(**context_options)
             
-            # Add extra headers to appear more human-like
-            if self.context:
-                await self.context.set_extra_http_headers({
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
-                    'Accept-Encoding': 'gzip, deflate, br',
-                    'Connection': 'keep-alive',
-                    'Upgrade-Insecure-Requests': '1',
-                    'Cache-Control': 'max-age=0',
-                    'Sec-Fetch-Dest': 'document',
-                    'Sec-Fetch-Mode': 'navigate',
-                    'Sec-Fetch-Site': 'none',
-                    'Sec-Fetch-User': '?1',
-                })
-                
-                # Add stealth script to bypass headless detection
-                await self.context.add_init_script("""
-                    // Override webdriver property
-                    Object.defineProperty(navigator, 'webdriver', {
-                        get: () => undefined,
-                    });
-                    
-                    // Override plugins
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5],
-                    });
-                    
-                    // Override languages
-                    Object.defineProperty(navigator, 'languages', {
-                        get: () => ['id-ID', 'id', 'en-US', 'en'],
-                    });
-                    
-                    // Override chrome property
-                    window.chrome = {
-                        runtime: {},
-                    };
-                    
-                    // Override permissions
-                    const originalQuery = window.navigator.permissions.query;
-                    window.navigator.permissions.query = (parameters) => (
-                        parameters.name === 'notifications' ?
-                            Promise.resolve({ state: Notification.permission }) :
-                            originalQuery(parameters)
-                    );
-                    
-                    // Override hardware concurrency
-                    Object.defineProperty(navigator, 'hardwareConcurrency', {
-                        get: () => 8,
-                    });
-                    
-                    // Override device memory
-                    Object.defineProperty(navigator, 'deviceMemory', {
-                        get: () => 8,
-                    });
-                    
-                    // Override platform
-                    Object.defineProperty(navigator, 'platform', {
-                        get: () => 'Win32',
-                    });
-                """)
-            
+            # NOTE: do NOT set static extra HTTP headers or inject a "stealth"
+            # script here. Both were present before and got this scraper blocked by
+            # the Imperva/Incapsula WAF on datacenter IPs:
+            #
+            #  - Static Sec-Fetch-* / Accept headers are applied to EVERY request, so
+            #    each /_nuxt/*.js subresource was sent as `Sec-Fetch-Dest: document`
+            #    instead of `script`. The HTML document loaded (200) while every asset
+            #    was refused, leaving the Nuxt SPA unrendered and no login field.
+            #  - The stealth script claimed `navigator.platform = 'Win32'` on Linux and
+            #    a fake plugins array, which is a stronger bot signal than plain headless.
+            #
+            # Chromium's own headers are consistent; leave them alone. Passing the WAF
+            # relies on the regular Chromium build (BROWSER_CHANNEL=chromium) instead.
+
             self.log_info("Browser started successfully", 
                          headless=config.HEADLESS, 
                          channel=config.BROWSER_CHANNEL or 'bundled',

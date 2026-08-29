@@ -36,7 +36,30 @@ MINIMAL_ARGS = ['--no-sandbox', '--disable-dev-shm-usage']
 from playwright.async_api import async_playwright
 
 
-async def attempt(label, *, headless=True, channel="chromium", args=None, ua=UA_LINUX):
+STATIC_HEADERS = {
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+    'Accept-Language': 'id-ID,id;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Cache-Control': 'max-age=0',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+}
+
+STEALTH_SCRIPT = """
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+    Object.defineProperty(navigator, 'languages', { get: () => ['id-ID', 'id', 'en-US', 'en'] });
+    window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, 'platform', { get: () => 'Win32' });
+"""
+
+
+async def attempt(label, *, headless=True, channel="chromium", args=None, ua=UA_LINUX,
+                  static_headers=False, stealth=False):
     line = f"{label:<46s}"
     try:
         async with async_playwright() as p:
@@ -52,6 +75,10 @@ async def attempt(label, *, headless=True, channel="chromium", args=None, ua=UA_
             if ua:
                 ctx_opts["user_agent"] = ua
             ctx = await browser.new_context(**ctx_opts)
+            if static_headers:
+                await ctx.set_extra_http_headers(STATIC_HEADERS)
+            if stealth:
+                await ctx.add_init_script(STEALTH_SCRIPT)
             page = await ctx.new_page()
 
             asset_problems = []
@@ -114,6 +141,15 @@ async def main():
                                  channel=None, args=MINIMAL_ARGS)
     results['E'] = await attempt("E. channel=chromium + UA Windows",
                                  channel="chromium", args=MINIMAL_ARGS, ua=UA_WIN)
+    # G/H reproduce what the scraper used to do on top of config A, to show which
+    # of the two extras the WAF actually objects to.
+    results['G'] = await attempt("G. = A + header Sec-Fetch statis (kode lama)",
+                                 channel="chromium", args=PROJECT_ARGS, static_headers=True)
+    results['H'] = await attempt("H. = A + stealth script (kode lama)",
+                                 channel="chromium", args=PROJECT_ARGS, stealth=True)
+    results['I'] = await attempt("I. = A + header statis + stealth (bot lama)",
+                                 channel="chromium", args=PROJECT_ARGS,
+                                 static_headers=True, stealth=True)
 
     if os.environ.get("DISPLAY"):
         results['F'] = await attempt("F. headed (Xvfb) + args minimal",
