@@ -33,18 +33,44 @@ fi
 echo ""
 echo "--- 2. Konfigurasi (.env) ---"
 if [[ -f .env ]]; then
-    for KEY in LOGIN_PHONE WEBHOOK_URL MUTASI_URL BROWSER_CHANNEL CRON_INTERVAL_MINUTES; do
+    for KEY in LOGIN_PHONE WEBHOOK_URL MUTASI_URL BROWSER_CHANNEL CRON_INTERVAL_MINUTES QUIET_HOURS_START QUIET_HOURS_END; do
         VALUE=$(grep "^$KEY=" .env | head -1 | cut -d'=' -f2-)
         if [[ -n "$VALUE" ]]; then
             [[ "$KEY" == "LOGIN_PHONE" ]] && VALUE="${VALUE:0:4}****"
             ok "$KEY = $VALUE"
         else
-            [[ "$KEY" == "BROWSER_CHANNEL" ]] && bad "$KEY kosong - WAF BRI akan memblokir. Set: BROWSER_CHANNEL=chromium" \
-                                              || warn "$KEY belum diisi"
+            case "$KEY" in
+                BROWSER_CHANNEL) bad "$KEY kosong - WAF BRI akan memblokir. Set: BROWSER_CHANNEL=chromium" ;;
+                QUIET_HOURS_*)   echo "   $KEY = (kosong, jam jeda nonaktif)" ;;
+                *)               warn "$KEY belum diisi" ;;
+            esac
         fi
     done
 else
     bad ".env tidak ditemukan. Jalankan: cp env.example .env"
+fi
+
+# 2b. Sedang jam jeda?
+QH_START=$(grep "^QUIET_HOURS_START=" .env 2>/dev/null | cut -d'=' -f2- | tr -d ' ')
+QH_END=$(grep "^QUIET_HOURS_END=" .env 2>/dev/null | cut -d'=' -f2- | tr -d ' ')
+if [[ -n "$QH_START" && -n "$QH_END" ]]; then
+    TZ_NAME=$(grep "^TIMEZONE=" .env 2>/dev/null | cut -d'=' -f2- | tr -d ' ')
+    TZ_NAME=${TZ_NAME:-Asia/Jakarta}
+    NOW_HM=$(TZ="$TZ_NAME" date +%H:%M)
+    # Bandingkan sebagai menit sejak tengah malam agar rentang lintas tengah malam benar
+    to_min() { echo $((10#${1%%:*} * 60 + 10#${1##*:})); }
+    N=$(to_min "$NOW_HM"); S=$(to_min "$QH_START"); E=$(to_min "$QH_END")
+    IN_QUIET=false
+    if [[ $S -lt $E ]]; then
+        [[ $N -ge $S && $N -lt $E ]] && IN_QUIET=true
+    elif [[ $S -gt $E ]]; then
+        { [[ $N -ge $S ]] || [[ $N -lt $E ]]; } && IN_QUIET=true
+    fi
+    if [[ "$IN_QUIET" == true ]]; then
+        warn "Sekarang $NOW_HM $TZ_NAME - SEDANG JAM JEDA, scraping dilewati sampai $QH_END"
+    else
+        ok "Sekarang $NOW_HM $TZ_NAME - di luar jam jeda, bot aktif"
+    fi
 fi
 
 # 3. Run terakhir
@@ -65,6 +91,10 @@ if [[ -f "$LOG" ]]; then
     elif [[ -n "$LAST_RESULT" ]]; then
         bad "Hasil terakhir: GAGAL -> $LAST_RESULT"
     fi
+
+    SKIPPED_LOCK=$(grep -c "SKIP: run sebelumnya" "$LOG" 2>/dev/null || echo 0)
+    SKIPPED_QUIET=$(grep -c "Jam jeda aktif" "$LOG" 2>/dev/null || echo 0)
+    echo "   Tick dilewati: $SKIPPED_LOCK (run masih jalan) | $SKIPPED_QUIET (jam jeda)"
 
     SENT=$(grep -c "Mutation posted successfully" "$LOG" 2>/dev/null || echo 0)
     FAILED=$(grep -c "Request error posting mutation" "$LOG" 2>/dev/null || echo 0)

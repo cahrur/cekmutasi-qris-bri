@@ -5,6 +5,10 @@ Simplified untuk system cron usage - no internal scheduler
 """
 import asyncio
 import sys
+from datetime import datetime
+
+import pytz
+
 from .config import config
 from .logger import setup_logger
 from .main import QRISMutationScraper
@@ -20,7 +24,20 @@ class QRISCronApp:
         """Run single scraper job - designed for system cron"""
         try:
             self.logger.info("=== QRIS Scraper Job Started ===")
-            
+
+            # Skip entirely during quiet hours, before starting a browser.
+            if config.is_quiet_time():
+                now = datetime.now(pytz.timezone(config.TIMEZONE))
+                self.logger.info(
+                    "Jam jeda aktif, scraping dilewati | sekarang=%s jeda=%s-%s (%s)",
+                    now.strftime('%H:%M'),
+                    config.QUIET_HOURS_START.strftime('%H:%M'),
+                    config.QUIET_HOURS_END.strftime('%H:%M'),
+                    config.TIMEZONE,
+                )
+                self.logger.info("=== QRIS Scraper Job Skipped ===")
+                return
+
             # Create fresh scraper instance
             scraper = QRISMutationScraper()
             
@@ -43,6 +60,14 @@ class QRISCronApp:
         self.logger.info(f"Webhook URL: {config.WEBHOOK_URL}")
         self.logger.info(f"Headless Mode: {config.HEADLESS}")
         self.logger.info(f"Timezone: {config.TIMEZONE}")
+        if config.QUIET_HOURS_START and config.QUIET_HOURS_END:
+            self.logger.info(
+                f"Quiet hours: {config.QUIET_HOURS_START.strftime('%H:%M')}"
+                f"-{config.QUIET_HOURS_END.strftime('%H:%M')} "
+                f"(sekarang {'AKTIF - tidak scraping' if config.is_quiet_time() else 'tidak aktif'})"
+            )
+        else:
+            self.logger.info("Quiet hours: nonaktif")
         self.logger.info("=" * 60)
 
 

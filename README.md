@@ -86,6 +86,7 @@ Isikan kredensial Anda:
 | `BROWSER_CHANNEL` | Biarkan `chromium` (wajib, lihat *Troubleshooting*) |
 | `WEBHOOK_URL` | URL endpoint untuk menerima data mutasi |
 | `CRON_INTERVAL_MINUTES` | Interval pengecekan (contoh: `10`) |
+| `QUIET_HOURS_START` / `QUIET_HOURS_END` | Jam jeda, bot berhenti scraping (contoh: `23:00` dan `02:00`). Kosongkan untuk nonaktif |
 
 > 📌 **Tidak perlu lagi menyalin URL outlet Anda ke `MUTASI_URL`.**
 > Cukup isi `https://brimerchant.bri.co.id/transaksi`. Bot membuka URL ini **apa adanya**
@@ -149,10 +150,61 @@ WEBHOOK_URL=http://your-domain.com/webhook/callback
 # Interval Auto Check (dalam menit)
 CRON_INTERVAL_MINUTES=10  # Check setiap 10 menit
 
+# Jam jeda (opsional) - bot berhenti scraping di rentang ini
+QUIET_HOURS_START=23:00
+QUIET_HOURS_END=02:00
+
 # Browser Settings
 HEADLESS=true
 BROWSER_CHANNEL=chromium
 TIMEZONE=Asia/Jakarta
+```
+
+### ⏸️ Jam Jeda (berhenti otomatis di jam tertentu)
+
+Kalau tidak perlu memantau 24 jam penuh, atur jam jeda lewat `.env` — tidak perlu
+mengubah kode maupun jadwal cron:
+
+```env
+QUIET_HOURS_START=23:00
+QUIET_HOURS_END=02:00
+```
+
+Artinya bot **berhenti scraping jam 23:00 dan jalan lagi jam 02:00**. Cron tetap
+berdetak seperti biasa, tetapi setiap tick di dalam rentang itu langsung berhenti
+**sebelum browser dibuka**, jadi tidak ada pemakaian RAM maupun kuota data. Di log:
+
+```
+INFO  qris_cron | Jam jeda aktif, scraping dilewati | sekarang=23:04 jeda=23:00-02:00 (Asia/Jakarta)
+INFO  qris_cron | === QRIS Scraper Job Skipped ===
+```
+
+Catatan penting:
+
+- Format **24 jam `HH:MM`**. Rentang boleh melewati tengah malam (`23:00`–`02:00`).
+- Jam dihitung memakai **`TIMEZONE`** di `.env` (default `Asia/Jakarta`), **bukan** jam
+  server. Jadi tetap benar walaupun jam VPS diset UTC atau zona lain.
+- Batas awal termasuk, batas akhir tidak: jeda `23:00`–`02:00` berarti `23:00` sudah
+  berhenti dan `02:00` sudah jalan lagi.
+- **Kosongkan salah satu atau keduanya** untuk menonaktifkan fitur ini.
+
+#### ⚠️ Jangan sampai jeda melewati tengah malam
+
+Halaman transaksi BRI Merchant **hanya menampilkan transaksi hari ini** — tidak ada
+daftar hari kemarin, dan di-scroll pun tidak memuat lebih banyak. Karena itu:
+
+| Jeda | Akibat |
+|---|---|
+| `00:00`–`02:00` | ✅ **Aman.** Transaksi jam 00:00–02:00 tetap terkirim saat bot jalan jam 02:00, karena masih tanggal yang sama |
+| `23:00`–`02:00` | ⚠️ Transaksi jam **23:00–23:59 tidak akan pernah terkirim**. Saat bot jalan lagi jam 02:00, tanggal sudah berganti dan transaksi kemarin tidak lagi tampil di halaman |
+
+Jadi kalau ingin bot istirahat malam **tanpa kehilangan transaksi**, mulai jedanya
+tepat di tengah malam (`00:00`), bukan sebelum tengah malam.
+
+Cek apakah sedang dalam jam jeda:
+
+```bash
+./status.sh
 ```
 
 ## 🚀 Penggunaan

@@ -2,9 +2,15 @@
 Configuration management for QRIS mutation scraper
 """
 import os
+from datetime import datetime, time as dtime
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
+
+try:
+    import pytz
+except ImportError:  # pragma: no cover - handled at runtime
+    pytz = None
 
 
 class Config:
@@ -47,6 +53,11 @@ class Config:
         
         # Cron settings
         self.CRON_INTERVAL_MINUTES = self._get_int('CRON_INTERVAL_MINUTES', 10)  # Increased for memory relief
+
+        # Quiet hours: skip scraping between these times (in TIMEZONE, 24h "HH:MM").
+        # Leave either empty to disable. A range may cross midnight (23:00-02:00).
+        self.QUIET_HOURS_START = self._parse_time(self._get_env('QUIET_HOURS_START', ''))
+        self.QUIET_HOURS_END = self._parse_time(self._get_env('QUIET_HOURS_END', ''))
         
         # File paths
         self.SESSION_FILE = self._get_env('SESSION_FILE', './data/session.json')
@@ -81,6 +92,45 @@ class Config:
         except ValueError:
             return default
     
+    def _parse_time(self, value: str) -> Optional[dtime]:
+        """Parse "HH:MM" (or "HH") into a time; returns None when unset/invalid"""
+        value = (value or '').strip()
+        if not value:
+            return None
+        try:
+            parts = value.split(':')
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+            return dtime(hour, minute)
+        except (ValueError, IndexError):
+            raise ValueError(
+                f"Invalid time format '{value}'. Use 24-hour HH:MM, e.g. 23:00"
+            )
+
+    def is_quiet_time(self, now: Optional[datetime] = None) -> bool:
+        """True when the current time falls inside the configured quiet hours.
+
+        Times are evaluated in TIMEZONE, not the server's local timezone, so the
+        window means the same thing regardless of how the VPS clock is set.
+        """
+        if not self.QUIET_HOURS_START or not self.QUIET_HOURS_END:
+            return False
+
+        if now is None:
+            if pytz is None:
+                raise ImportError("pytz is required for quiet hours. Run: pip install pytz")
+            now = datetime.now(pytz.timezone(self.TIMEZONE))
+
+        current = now.time()
+        start, end = self.QUIET_HOURS_START, self.QUIET_HOURS_END
+
+        if start == end:
+            return False
+        if start < end:
+            return start <= current < end
+        # Window crosses midnight, e.g. 23:00-02:00
+        return current >= start or current < end
+
     def _ensure_data_dir(self):
         """Ensure data directory exists"""
         data_dir = Path('./data')
