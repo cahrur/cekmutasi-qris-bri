@@ -5,7 +5,7 @@ Aplikasi Python untuk **auto checking mutasi QRIS** dari QRIS BRI secara otomati
 ## 🎯 Fitur Utama
 
 - 🤖 **Auto Check Mutasi QRIS** - Monitoring mutasi 24/7
-- ⏰ **Interval Configurable** - Atur interval cek sesuai kebutuhan (5-60 menit)
+- ⏰ **Interval Configurable** - Atur interval cek lewat `CRON_INTERVAL_MINUTES`
 - 🔗 **Webhook Integration** - Kirim data mutasi ke endpoint Anda
 - 🔐 **Credential Management** - Login otomatis dengan session persistence
 - 🧠 **Smart Deduplication** - Hindari duplikasi pengiriman data
@@ -157,15 +157,51 @@ TIMEZONE=Asia/Jakarta
 
 ## 🚀 Penggunaan
 
+### **Cek Sistem Sudah Jalan atau Belum**
+
+```bash
+./status.sh
+```
+
+Menampilkan dalam satu layar: cron sudah terpasang atau belum, konfigurasi `.env`
+yang penting, kapan run terakhir dan hasilnya (sukses/gagal), jumlah mutasi yang
+sudah terkirim, serta status sesi login.
+
+### **Monitoring Realtime**
+
+```bash
+tail -f logs/cron.log
+```
+
+File `logs/cron.log` diisi oleh `run_cron_job.sh` — baik saat dijalankan cron
+maupun manual. Kalau file ini belum ada, berarti bot memang belum pernah jalan.
+
+Tanda sistem sehat pada log:
+
+```
+INFO  BrowserManager | Browser started successfully | headless=True channel=chromium ...
+INFO  AuthManager    | Login successful
+INFO  MutasiScraper  | Parsing revamped transaction cards | cards=3
+INFO  WebhookClient  | Batch posting completed | total=3 successful=3 failed=0
+INFO  qris_cron      | === QRIS Scraper Job Completed ===
+```
+
+> `Found 0 new mutations out of N total` **bukan error**. Artinya semua transaksi
+> yang terbaca sudah pernah dikirim ke webhook dan tidak dikirim ulang (deduplikasi).
+
+Hanya melihat aktivitas terbaru:
+
+```bash
+tail -n 50 logs/cron.log
+grep -E "Job Completed|failed" logs/cron.log | tail -20
+```
+
 ### **Production (System Cron)**
 ```bash
-# Cron sudah auto-setup setelah install
-crontab -l  # Check cron status
+# Lihat jadwal cron yang terpasang
+crontab -l
 
-# Monitor real-time
-tail -f logs/cron.log
-
-# Manual test
+# Jalankan manual sekali (tetap tercatat ke logs/cron.log)
 ./run_cron_job.sh
 ```
 
@@ -174,26 +210,37 @@ tail -f logs/cron.log
 # Single run test
 python -m app.main_cron once
 
-# Test webhook
-./test_webhook.sh
+# Test kirim webhook
+python test_webhook_simple.py
+
+# Diagnosa browser vs WAF BRI Merchant
+python diagnose_browser.py
 ```
 
 ## 📊 Format Data Webhook
 
-Data mutasi dikirim dalam format JSON:
-```json
-{
-  "target": "mutation",
-  "bank": "QRIS", 
-  "account": "-",
-  "date": "2025-01-18",
-  "time": "10:30:00",
-  "description": "Transfer masuk dari BANK XYZ",
-  "type": "K",
-  "amount": "150000",
-  "balance": "2500000"
-}
+Setiap mutasi dikirim sebagai **satu POST terpisah** dengan
+`Content-Type: application/x-www-form-urlencoded` (bukan JSON):
+
 ```
+target=mutation&bank=QRIS&account=-&date=2026-08-29&time=17%3A21%3A39
+&description=QRIS+-+DANA+No.+Ref+624130689335+Pencairan+Berhasil
+&type=K&amount=85903&balance=
+```
+
+| Field | Isi |
+|---|---|
+| `target` | Selalu `mutation` |
+| `bank` | Selalu `QRIS` |
+| `account` | Selalu `-` |
+| `date` | Tanggal transaksi, `YYYY-MM-DD` |
+| `time` | Jam transaksi, `HH:MM:SS` |
+| `description` | Channel + No. Ref + status pencairan |
+| `type` | `K` (kredit / uang masuk) |
+| `amount` | Nominal tanpa pemisah ribuan |
+| `balance` | **Selalu kosong** — BRI Merchant tidak menampilkan saldo di daftar transaksi |
+
+Contoh penerima sederhana untuk uji coba ada di `test_webhook_simple.py`.
 
 ## 🔄 Management Commands
 
@@ -201,7 +248,7 @@ Data mutasi dikirim dalam format JSON:
 # Update cron interval setelah edit .env
 ./update_cron_interval.sh
 
-# Check system status
+# Check system status (cron, config, run terakhir, mutasi terkirim)
 ./status.sh
 
 # Manual single run
@@ -279,10 +326,10 @@ jalankan instance bot terpisah untuk tiap akun.
 ### **Webhook Tidak Terkirim**
 ```bash
 # Test webhook
-./test_webhook.sh
+python test_webhook_simple.py
 
-# Check webhook URL
-curl -X POST $WEBHOOK_URL -d "test=1"
+# Check webhook URL (payload berupa form data, bukan JSON)
+curl -X POST $WEBHOOK_URL -d "target=mutation&bank=QRIS&amount=1000"
 ```
 
 ### **Cron Tidak Jalan**

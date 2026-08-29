@@ -34,7 +34,10 @@ crontab -l 2>/dev/null | grep -v "run_cron_job.sh" | crontab -
 
 # Add new cron entry
 echo -e "${YELLOW}➕ Adding new cron entry...${NC}"
-CRON_ENTRY="*/$CRON_INTERVAL * * * * cd $INSTALL_DIR && ./run_cron_job.sh"
+# run_cron_job.sh already tees into logs/cron.log, so discard cron's own copy
+# instead of writing every line twice (and filling root's mail spool).
+mkdir -p "$INSTALL_DIR/logs"
+CRON_ENTRY="*/$CRON_INTERVAL * * * * cd $INSTALL_DIR && ./run_cron_job.sh > /dev/null 2>&1"
 (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
 
 echo -e "${GREEN}✅ Cron interval updated successfully!${NC}"
