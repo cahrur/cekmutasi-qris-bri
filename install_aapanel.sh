@@ -312,7 +312,7 @@ PASSWORD=your_password
 # URLs
 BASE_URL=https://brimerchant.bri.co.id
 LOGIN_URL=https://brimerchant.bri.co.id/auth/login
-MUTASI_URL=https://brimerchant.bri.co.id/transaksi/daftar-transaksi/ganti-url-valid-anda
+MUTASI_URL=https://brimerchant.bri.co.id/transaksi
 
 # Webhook
 WEBHOOK_URL=http://your-webhook-url.com/callback

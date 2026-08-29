@@ -13,6 +13,25 @@ Aplikasi Python untuk **auto checking mutasi QRIS** dari QRIS BRI secara otomati
 - 🚀 **Production Ready** - System cron untuk stability
 - 📱 **AAPanel Compatible** - Easy deployment di shared hosting
 
+## ⚠️ Prasyarat Akun BRI Merchant (WAJIB DIBACA)
+
+> **Akun BRI Merchant yang dipakai bot ini HARUS hanya memiliki 1 QRIS / 1 outlet.**
+
+Per pembaruan terbaru di portal **BRI Merchant**, halaman transaksi tidak lagi memakai
+URL khusus per outlet maupun segmen tanggal. Bot sekarang langsung membuka halaman
+transaksi umum (`/transaksi`) — persis seperti yang diisi di `MUTASI_URL` — dan membaca
+daftar transaksi hari ini milik outlet aktif.
+
+Konsekuensinya:
+
+- ✅ **1 akun = 1 QRIS/outlet** → bot berjalan normal, semua mutasi terbaca.
+- ❌ **1 akun berisi banyak QRIS/outlet** → bot hanya membaca outlet yang sedang
+  aktif/terpilih di portal, sehingga mutasi outlet lain **tidak akan terkirim** ke webhook.
+
+Jika Anda punya beberapa QRIS/outlet, pisahkan tiap QRIS ke akun BRI Merchant
+tersendiri, lalu jalankan 1 instance bot (folder + `.env` terpisah) untuk masing-masing akun.
+
+
 ## 🛠️ Instalasi di VPS Ubuntu
 
 ### **1. Persiapan Awal**
@@ -61,10 +80,17 @@ Isikan kredensial Anda:
 
 | Variable | Keterangan |
 |---|---|
-| `LOGIN_PHONE` | Nomor HP akun QRIS |
+| `LOGIN_PHONE` | Nomor HP akun BRI Merchant |
 | `PASSWORD` | Password akun |
+| `MUTASI_URL` | Biarkan default `https://brimerchant.bri.co.id/transaksi` |
 | `WEBHOOK_URL` | URL endpoint untuk menerima data mutasi |
 | `CRON_INTERVAL_MINUTES` | Interval pengecekan (contoh: `10`) |
+
+> 📌 **Tidak perlu lagi menyalin URL outlet Anda ke `MUTASI_URL`.**
+> Cukup isi `https://brimerchant.bri.co.id/transaksi`. Bot membuka URL ini **apa adanya**
+> tanpa menambahkan rentang tanggal, karena halaman transaksi BRI Merchant sudah otomatis
+> menampilkan transaksi hari ini. Pastikan akun hanya berisi 1 QRIS/outlet
+> (lihat bagian *Prasyarat Akun BRI Merchant*).
 
 Tekan `Ctrl + X`, lalu `Y` dan `Enter` untuk menyimpan.
 
@@ -110,6 +136,11 @@ Edit file `.env`:
 # Kredensial Login (WAJIB DIISI)
 LOGIN_PHONE=your_phone
 PASSWORD=your_password
+
+# Halaman transaksi BRI Merchant (biarkan default)
+BASE_URL=https://brimerchant.bri.co.id
+LOGIN_URL=https://brimerchant.bri.co.id/auth/login
+MUTASI_URL=https://brimerchant.bri.co.id/transaksi
 
 # Webhook URL (GANTI DENGAN URL ANDA)
 WEBHOOK_URL=http://your-domain.com/webhook/callback
@@ -199,6 +230,21 @@ cat .env | grep PASSWORD
 # Test manual login
 ./test_scraper.sh
 ```
+
+### **Mutasi Tidak Terbaca / Hanya Sebagian**
+
+Penyebab paling umum: akun BRI Merchant berisi **lebih dari 1 QRIS/outlet**, sehingga
+bot hanya membaca outlet yang sedang aktif.
+
+```bash
+# Pastikan MUTASI_URL memakai halaman transaksi umum
+cat .env | grep MUTASI_URL
+# Harus: MUTASI_URL=https://brimerchant.bri.co.id/transaksi
+```
+
+Login manual ke https://brimerchant.bri.co.id dan pastikan hanya ada 1 QRIS/outlet
+pada akun tersebut. Jika lebih dari satu, pisahkan ke akun BRI Merchant berbeda dan
+jalankan instance bot terpisah untuk tiap akun.
 
 ### **Webhook Tidak Terkirim**
 ```bash

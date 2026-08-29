@@ -2,15 +2,9 @@
 Configuration management for QRIS mutation scraper
 """
 import os
-from datetime import datetime, timedelta, date
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional
 from dotenv import load_dotenv
-
-try:
-    import pytz
-except ImportError:  # pragma: no cover - handled at runtime
-    pytz = None
 
 
 class Config:
@@ -25,8 +19,7 @@ class Config:
         # URLs
         self.BASE_URL = self._get_env('BASE_URL', 'https://brimerchant.bri.co.id')
         self.LOGIN_URL = self._get_env('LOGIN_URL', f'{self.BASE_URL}/auth/login')
-        self.MUTASI_URL = self._get_env('MUTASI_URL', f'{self.BASE_URL}/mutasi_qris')
-        mutasi_url_lower = self.MUTASI_URL.lower()
+        self.MUTASI_URL = self._get_env('MUTASI_URL', f'{self.BASE_URL}/transaksi')
         
         # Authentication
         self.LOGIN_PHONE = self._get_env('LOGIN_PHONE', '')
@@ -59,15 +52,6 @@ class Config:
         self.DEBUG_SCREENSHOT = './data/debug_last.png'
         self.DEBUG_HTML = './data/debug_last.html'
 
-        # Mutation date range handling
-        date_range_default = 'brimerchant.bri.co.id' in mutasi_url_lower
-        query_default = 'type=qris' if date_range_default else ''
-        self.MUTASI_DATE_RANGE_REQUIRED = self._get_bool('MUTASI_DATE_RANGE_REQUIRED', date_range_default)
-        self.MUTASI_DATE_FORMAT = self._get_env('MUTASI_DATE_FORMAT', '%Y-%m-%d')
-        self.MUTASI_DATE_SEPARATOR = self._get_env('MUTASI_DATE_SEPARATOR', 'and')
-        self.MUTASI_QUERY_STRING = self._get_env('MUTASI_QUERY_STRING', query_default)
-        self.MUTASI_DATE_OFFSET_DAYS = self._get_int('MUTASI_DATE_OFFSET_DAYS', 0)
-        
         # Ensure data directory exists
         self._ensure_data_dir()
         
@@ -112,54 +96,16 @@ class Config:
         if not self.WEBHOOK_URL:
             raise ValueError("WEBHOOK_URL must be provided")
 
-        if self.MUTASI_DATE_RANGE_REQUIRED and pytz is None:
-            raise ImportError("pytz is required for date range handling. Install pytz or set MUTASI_DATE_RANGE_REQUIRED=false")
+        if not self.MUTASI_URL:
+            raise ValueError("MUTASI_URL must be provided")
 
-    def build_mutasi_url(
-        self,
-        start: Optional[Union[datetime, date, str]] = None,
-        end: Optional[Union[datetime, date, str]] = None,
-    ) -> str:
-        """Build mutation URL, optionally injecting date range parameters"""
-        if not self.MUTASI_DATE_RANGE_REQUIRED:
-            return self.MUTASI_URL
+    def build_mutasi_url(self) -> str:
+        """Return the mutation URL exactly as configured in MUTASI_URL.
 
-        if pytz is None:
-            raise ImportError("pytz is required to build mutation URL with date range")
-
-        tz = pytz.timezone(self.TIMEZONE)
-
-        def _to_date(value: Optional[Union[datetime, date, str]]) -> Optional[date]:
-            if value is None:
-                return None
-            if isinstance(value, datetime):
-                return value.date()
-            if isinstance(value, date):
-                return value
-            try:
-                return datetime.strptime(value, self.MUTASI_DATE_FORMAT).date()
-            except ValueError as exc:
-                raise ValueError(
-                    f"Cannot parse date '{value}' using MUTASI_DATE_FORMAT='{self.MUTASI_DATE_FORMAT}'"
-                ) from exc
-
-        offset_now = datetime.now(tz) + timedelta(days=self.MUTASI_DATE_OFFSET_DAYS)
-        start_date = _to_date(start) or offset_now.date()
-        end_date = _to_date(end) or start_date
-
-        start_str = start_date.strftime(self.MUTASI_DATE_FORMAT)
-        end_str = end_date.strftime(self.MUTASI_DATE_FORMAT)
-
-        base = self.MUTASI_URL.rstrip('/')
-        date_segment = f"{start_str}{self.MUTASI_DATE_SEPARATOR}{end_str}"
-        url = f"{base}/{date_segment}"
-
-        query = (self.MUTASI_QUERY_STRING or '').strip()
-        if query:
-            query = query if query.startswith('?') else f"?{query}"
-            url = f"{url}{query}"
-
-        return url
+        BRI Merchant already defaults its transaction page to the current date,
+        so no date range or query string is appended here.
+        """
+        return self.MUTASI_URL
 
 
 # Global config instance
